@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,11 +15,12 @@ pub struct Request {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<RequestParams>,
 
-    pub id: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<Id>,
 }
 
 impl Request {
-    pub fn new(method: String, params: Option<RequestParams>, id: Id) -> Self {
+    pub fn new(method: String, params: Option<RequestParams>, id: Option<Id>) -> Self {
         Self {
             jsonrpc: JsonRpcVersion2,
             method,
@@ -29,19 +30,19 @@ impl Request {
     }
 }
 
+impl FromStr for Request {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Id {
     Number(u64),
     String(String),
-}
-
-impl Display for Id {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        serde_json::to_value(self)
-            .map_err(|_| std::fmt::Error)?
-            .fmt(f)
-    }
 }
 
 impl FromStr for Id {
@@ -57,14 +58,6 @@ impl FromStr for Id {
 pub enum RequestParams {
     Array(Vec<serde_json::Value>),
     Object(serde_json::Map<String, serde_json::Value>),
-}
-
-impl Display for RequestParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        serde_json::to_value(self)
-            .map_err(|_| std::fmt::Error)?
-            .fmt(f)
-    }
 }
 
 impl FromStr for RequestParams {

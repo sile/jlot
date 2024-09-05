@@ -1,6 +1,6 @@
-jrot
+jlot
 ====
 
-A command-line tool for JSON-RPC + JSON Lines over TCP.
+A command-line tool for JSON-RPC (with JSON Lines) over TCP.
 
 https://www.jsonrpc.org/specification

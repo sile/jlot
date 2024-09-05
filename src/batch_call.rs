@@ -1,4 +1,7 @@
-use std::net::{TcpStream, ToSocketAddrs};
+use std::{
+    net::{TcpStream, ToSocketAddrs},
+    str::FromStr,
+};
 
 use jsonlrpc::{RequestObject, RpcClient};
 use orfail::{Failure, OrFail};
@@ -7,7 +10,7 @@ use orfail::{Failure, OrFail};
 pub struct BatchCallCommand {
     server_addr: String,
 
-    requests: Vec<RequestObject>,
+    requests: BatchRequest,
 }
 
 impl BatchCallCommand {
@@ -26,7 +29,7 @@ impl BatchCallCommand {
             socket.set_nodelay(true).or_fail()?;
             let mut client = RpcClient::new(socket);
 
-            let responses = client.batch_call(&self.requests).or_fail()?;
+            let responses = client.batch_call(&self.requests.0).or_fail()?;
             println!("{}", serde_json::to_string(&responses).or_fail()?);
 
             return Ok(());
@@ -38,5 +41,17 @@ impl BatchCallCommand {
                 self.server_addr,
             ))
         }))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct BatchRequest(Vec<RequestObject>);
+
+impl FromStr for BatchRequest {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let requests: Vec<RequestObject> = serde_json::from_str(s)?;
+        Ok(Self(requests))
     }
 }

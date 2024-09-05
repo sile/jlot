@@ -3,16 +3,15 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
 };
 
+use jsonlrpc::{RequestObject, ResponseObject};
 use orfail::OrFail;
-
-use crate::json_rpc_types::{Request, Response};
 
 #[derive(Debug, clap::Args)]
 pub struct BatchCallCommand {
     #[clap(short, long)]
     server: String,
 
-    requests: Vec<Request>,
+    requests: Vec<RequestObject>,
 }
 
 impl BatchCallCommand {
@@ -34,7 +33,7 @@ impl BatchCallCommand {
         let mut reader = BufReader::new(writer.into_inner().or_fail()?);
         let mut line = String::new();
         reader.read_line(&mut line).or_fail()?;
-        let responses: Vec<Response> = serde_json::from_str(&line).or_fail()?;
+        let responses: Vec<ResponseObject> = serde_json::from_str(&line).or_fail()?;
 
         println!("{}", serde_json::to_string_pretty(&responses).or_fail()?);
         Ok(())

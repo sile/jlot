@@ -3,9 +3,8 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
 };
 
+use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams, ResponseObject};
 use orfail::OrFail;
-
-use crate::json_rpc_types::{Id, Request, RequestParams, Response};
 
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
@@ -19,11 +18,12 @@ pub struct CallCommand {
     params: Option<RequestParams>,
 
     #[clap(short, long)]
-    id: Option<Id>,
+    id: Option<RequestId>,
 }
 
 impl CallCommand {
     pub fn run(self) -> orfail::Result<()> {
+        // TODO: use RpcClient
         let is_notification = self.id.is_none();
 
         let server_addr = self.server.to_socket_addrs().or_fail()?.next().or_fail()?;
@@ -34,7 +34,12 @@ impl CallCommand {
         let mut writer = BufWriter::new(socket);
         serde_json::to_writer(
             &mut writer,
-            &Request::new(self.method, self.params, self.id),
+            &RequestObject {
+                jsonrpc: JsonRpcVersion::V2,
+                method: self.method,
+                params: self.params,
+                id: self.id,
+            },
         )
         .or_fail()?;
         writer.write_all(b"\n").or_fail()?;
@@ -47,7 +52,7 @@ impl CallCommand {
         let mut reader = BufReader::new(writer.into_inner().or_fail()?);
         let mut line = String::new();
         reader.read_line(&mut line).or_fail()?;
-        let response: Response = serde_json::from_str(&line).or_fail()?;
+        let response: ResponseObject = serde_json::from_str(&line).or_fail()?;
 
         println!("{}", serde_json::to_string_pretty(&response).or_fail()?);
         Ok(())

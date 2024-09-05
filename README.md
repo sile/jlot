@@ -27,3 +27,28 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 ```
+
+Examples
+--------
+
+Start an echo server in a terminal:
+```console
+$ jlot run-echo-server 127.0.0.1:9000
+```
+
+Execute an RPC call in another terminal:
+```console
+$ jlot call 127.0.0.1:9000 $(jlot req hello '["world"]' --id 2) | jq .
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "hello",
+    "params": [
+      "world"
+    ]
+  },
+  "id": 2
+}
+```

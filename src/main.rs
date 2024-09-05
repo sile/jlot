@@ -3,6 +3,7 @@ use orfail::OrFail;
 
 use jlot::{call::CallCommand, req::ReqCommand, run_echo_server::RunEchoServerCommand};
 
+/// Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP.
 #[derive(Parser)]
 #[clap(version)]
 enum Args {

@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     net::{TcpStream, ToSocketAddrs},
 };
 
@@ -24,6 +24,7 @@ impl BatchCallCommand {
 
         let mut writer = BufWriter::new(socket);
         serde_json::to_writer(&mut writer, &self.requests).or_fail()?;
+        writer.write_all(b"\n").or_fail()?;
         writer.flush().or_fail()?;
 
         if self.requests.iter().all(|r| r.id.is_none()) {
@@ -31,7 +32,9 @@ impl BatchCallCommand {
         }
 
         let mut reader = BufReader::new(writer.into_inner().or_fail()?);
-        let responses: Vec<Response> = serde_json::from_reader(&mut reader).or_fail()?;
+        let mut line = String::new();
+        reader.read_line(&mut line).or_fail()?;
+        let responses: Vec<Response> = serde_json::from_str(&line).or_fail()?;
 
         println!("{}", serde_json::to_string_pretty(&responses).or_fail()?);
         Ok(())

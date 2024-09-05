@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, BufWriter, Write},
     net::{TcpStream, ToSocketAddrs},
 };
 
@@ -37,6 +37,7 @@ impl CallCommand {
             &Request::new(self.method, self.params, self.id),
         )
         .or_fail()?;
+        writer.write_all(b"\n").or_fail()?;
         writer.flush().or_fail()?;
 
         if is_notification {
@@ -44,7 +45,9 @@ impl CallCommand {
         }
 
         let mut reader = BufReader::new(writer.into_inner().or_fail()?);
-        let response: Response = serde_json::from_reader(&mut reader).or_fail()?;
+        let mut line = String::new();
+        reader.read_line(&mut line).or_fail()?;
+        let response: Response = serde_json::from_str(&line).or_fail()?;
 
         println!("{}", serde_json::to_string_pretty(&response).or_fail()?);
         Ok(())

@@ -2,6 +2,12 @@
 name = "jlot"
 version = "0.1.0"
 edition = "2021"
+authors = ["Takeru Ohta <phjgt308@gmail.com>"]
+license = "MIT"
+description = "Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP"
+homepage = "https://github.com/sile/jlot"
+repository = "https://github.com/sile/jlot"
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4.5.16", features = ["derive"] }

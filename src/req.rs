@@ -1,7 +1,7 @@
 use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams};
 use orfail::OrFail;
 
-/// Generates a JSON-RPC request object JSON.
+/// Generate a JSON-RPC request object JSON.
 #[derive(Debug, clap::Args)]
 pub struct ReqCommand {
     /// Method name.

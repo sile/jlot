@@ -18,9 +18,9 @@ Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP
 Usage: jlot <COMMAND>
 
 Commands:
-  call             Executes a JSON-RPC call
-  req              Generates a JSON-RPC request object JSON
-  run-echo-server  Runs a JSON-RPC echo server (for development or testing purposes)
+  call             Execute a JSON-RPC call
+  req              Generate a JSON-RPC request object JSON
+  run-echo-server  Run a JSON-RPC echo server (for development or testing purposes)
   help             Print this message or the help of the given subcommand(s)
 
 Options:

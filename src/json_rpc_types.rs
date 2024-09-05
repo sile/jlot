@@ -41,7 +41,7 @@ impl FromStr for Request {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Id {
-    Number(u64),
+    Number(i64),
     String(String),
 }
 

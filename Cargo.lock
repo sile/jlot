@@ -120,7 +120,18 @@ name = "jrot"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "jsonlrpc",
  "orfail",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "jsonlrpc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c17c080a12d8d5499d59a96fb09e2ca8d94f579defdb2d74b8dde6d37f5c43e7"
+dependencies = [
  "serde",
  "serde_json",
 ]
@@ -183,9 +194,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.127"
+version = "1.0.128"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8043c06d9f82bd7271361ed64f415fe5e12a77fdb52e573e7f06a516dea329ad"
+checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
 dependencies = [
  "itoa",
  "memchr",

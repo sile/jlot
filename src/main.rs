@@ -8,6 +8,7 @@ use jrot::{command_batch_call::BatchCallCommand, command_call::CallCommand};
 enum Args {
     Call(CallCommand),
     BatchCall(BatchCallCommand),
+    // TODO: bench, echo-server
 }
 
 fn main() -> orfail::Result<()> {

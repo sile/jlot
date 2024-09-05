@@ -1,7 +1,7 @@
 use clap::Parser;
 use orfail::OrFail;
 
-use jlot::{command_batch_call::BatchCallCommand, command_call::CallCommand};
+use jlot::{batch_call::BatchCallCommand, call::CallCommand};
 
 #[derive(Parser)]
 #[clap(version)]

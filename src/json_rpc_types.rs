@@ -3,12 +3,14 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename = "2.0")]
-pub struct JsonRpcVersion2;
+pub enum JsonRpcVersion {
+    #[serde(rename = "2.0")]
+    V2,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Request {
-    pub jsonrpc: JsonRpcVersion2,
+    pub jsonrpc: JsonRpcVersion,
 
     pub method: String,
 
@@ -22,7 +24,7 @@ pub struct Request {
 impl Request {
     pub fn new(method: String, params: Option<RequestParams>, id: Option<Id>) -> Self {
         Self {
-            jsonrpc: JsonRpcVersion2,
+            jsonrpc: JsonRpcVersion::V2,
             method,
             params,
             id,
@@ -72,12 +74,12 @@ impl FromStr for RequestParams {
 #[serde(untagged)]
 pub enum Response {
     Ok {
-        jsonrpc: JsonRpcVersion2,
+        jsonrpc: JsonRpcVersion,
         result: serde_json::Value,
         id: Id,
     },
     Err {
-        jsonrpc: JsonRpcVersion2,
+        jsonrpc: JsonRpcVersion,
         error: Error,
         id: Option<Id>,
     },

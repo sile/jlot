@@ -6,11 +6,11 @@ use jsonlrpc::{
 use orfail::OrFail;
 
 #[derive(Debug, clap::Args)]
-pub struct EchoServerCommand {
+pub struct RunEchoServerCommand {
     listen_addr: SocketAddr,
 }
 
-impl EchoServerCommand {
+impl RunEchoServerCommand {
     pub fn run(self) -> orfail::Result<()> {
         let listener = std::net::TcpListener::bind(self.listen_addr).or_fail()?;
         for incoming in listener.incoming() {

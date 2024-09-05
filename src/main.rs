@@ -1,14 +1,15 @@
 use clap::Parser;
 use orfail::OrFail;
 
-use jlot::{call::CallCommand, echo_server::EchoServerCommand, req::ReqCommand};
+use jlot::{call::CallCommand, req::ReqCommand, run_echo_server::RunEchoServerCommand};
 
 #[derive(Parser)]
 #[clap(version)]
 enum Args {
     Call(CallCommand),
     Req(ReqCommand),
-    EchoServer(EchoServerCommand), // TODO: bench
+    RunEchoServer(RunEchoServerCommand),
+    // TODO: bench command
 }
 
 fn main() -> orfail::Result<()> {
@@ -16,7 +17,7 @@ fn main() -> orfail::Result<()> {
     match args {
         Args::Call(c) => c.run().or_fail()?,
         Args::Req(c) => c.run().or_fail()?,
-        Args::EchoServer(c) => c.run().or_fail()?,
+        Args::RunEchoServer(c) => c.run().or_fail()?,
     }
     Ok(())
 }

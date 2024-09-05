@@ -1,20 +1,12 @@
 use std::net::{TcpStream, ToSocketAddrs};
 
-use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams, RpcClient};
+use jsonlrpc::{MaybeBatch, RequestObject, RpcClient};
 use orfail::{Failure, OrFail};
 
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
     server_addr: String,
-
-    #[clap(short, long)]
-    method: String,
-
-    #[clap(short, long)]
-    params: Option<RequestParams>,
-
-    #[clap(short, long)]
-    id: Option<RequestId>,
+    request: MaybeBatch<RequestObject>,
 }
 
 impl CallCommand {
@@ -33,15 +25,18 @@ impl CallCommand {
             socket.set_nodelay(true).or_fail()?;
             let mut client = RpcClient::new(socket);
 
-            let request = RequestObject {
-                jsonrpc: JsonRpcVersion::V2,
-                method: self.method,
-                params: self.params,
-                id: self.id,
-            };
-
-            if let Some(response) = client.call(&request).or_fail()? {
-                println!("{}", serde_json::to_string(&response).or_fail()?);
+            match self.request {
+                MaybeBatch::Single(request) => {
+                    if let Some(response) = client.call(&request).or_fail()? {
+                        println!("{}", serde_json::to_string(&response).or_fail()?);
+                    }
+                }
+                MaybeBatch::Batch(requests) => {
+                    let responses = client.batch_call(&requests).or_fail()?;
+                    if !responses.is_empty() {
+                        println!("{}", serde_json::to_string(&responses).or_fail()?);
+                    }
+                }
             }
 
             return Ok(());

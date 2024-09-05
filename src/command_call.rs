@@ -1,9 +1,6 @@
-use std::{
-    io::{BufRead, BufReader, BufWriter, Write},
-    net::{TcpStream, ToSocketAddrs},
-};
+use std::net::{TcpStream, ToSocketAddrs};
 
-use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams, ResponseObject};
+use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams, RpcClient};
 use orfail::OrFail;
 
 #[derive(Debug, clap::Args)]
@@ -23,38 +20,23 @@ pub struct CallCommand {
 
 impl CallCommand {
     pub fn run(self) -> orfail::Result<()> {
-        // TODO: use RpcClient
-        let is_notification = self.id.is_none();
-
         let server_addr = self.server.to_socket_addrs().or_fail()?.next().or_fail()?;
         let socket = TcpStream::connect(server_addr)
             .or_fail_with(|e| format!("Failed to connect to '{server_addr}': {e}"))?;
         socket.set_nodelay(true).or_fail()?;
+        let mut client = RpcClient::new(socket);
 
-        let mut writer = BufWriter::new(socket);
-        serde_json::to_writer(
-            &mut writer,
-            &RequestObject {
-                jsonrpc: JsonRpcVersion::V2,
-                method: self.method,
-                params: self.params,
-                id: self.id,
-            },
-        )
-        .or_fail()?;
-        writer.write_all(b"\n").or_fail()?;
-        writer.flush().or_fail()?;
+        let request = RequestObject {
+            jsonrpc: JsonRpcVersion::V2,
+            method: self.method,
+            params: self.params,
+            id: self.id,
+        };
 
-        if is_notification {
-            return Ok(());
+        if let Some(response) = client.call(&request).or_fail()? {
+            println!("{}", serde_json::to_string(&response).or_fail()?);
         }
 
-        let mut reader = BufReader::new(writer.into_inner().or_fail()?);
-        let mut line = String::new();
-        reader.read_line(&mut line).or_fail()?;
-        let response: ResponseObject = serde_json::from_str(&line).or_fail()?;
-
-        println!("{}", serde_json::to_string_pretty(&response).or_fail()?);
         Ok(())
     }
 }

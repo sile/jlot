@@ -1,12 +1,18 @@
 use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams};
 use orfail::OrFail;
 
+/// Generates a JSON-RPC request object JSON.
 #[derive(Debug, clap::Args)]
 pub struct ReqCommand {
+    /// Method name.
     method: String,
 
+    /// Request parameters (JSON array or JSON object).
     params: Option<RequestParams>,
 
+    /// Request ID (number or string).
+    ///
+    /// If not provided, the request is regarded as a notification.
     #[clap(long)]
     id: Option<RequestId>,
 }

@@ -5,8 +5,13 @@ use jsonlrpc::{
 };
 use orfail::OrFail;
 
+/// Runs a JSON-RPC echo server (for development or testing purposes).
+///
+/// This server will respond to every request with a response containing
+/// the same request object as the result value.
 #[derive(Debug, clap::Args)]
 pub struct RunEchoServerCommand {
+    /// Listen address.
     listen_addr: SocketAddr,
 }
 

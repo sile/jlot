@@ -3,9 +3,13 @@ use std::net::{TcpStream, ToSocketAddrs};
 use jsonlrpc::{MaybeBatch, RequestObject, RpcClient};
 use orfail::{Failure, OrFail};
 
+/// Executes a JSON-RPC call.
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
+    /// JSON-RPC server address or hostname.
     server_addr: String,
+
+    /// JSON-RPC request object or array of request objects (for batch call).
     request: MaybeBatch<RequestObject>,
 }
 

@@ -12,6 +12,8 @@ This is a command-line tool for [JSON-RPC 2.0] over [JSON Lines] over TCP.
 [JSON Lines]: https://jsonlines.org/
 
 ```console
+$ cargo install jlot
+
 $ jlot
 Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP
 

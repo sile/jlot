@@ -1,6 +1,6 @@
 use std::net::{TcpStream, ToSocketAddrs};
 
-use jsonlrpc::{MaybeBatch, RequestObject, RpcClient};
+use jsonlrpc::{MaybeBatch, RequestObject, ResponseObject, RpcClient};
 use orfail::{Failure, OrFail};
 
 /// Execute a JSON-RPC call.
@@ -30,16 +30,19 @@ impl CallCommand {
             let mut client = RpcClient::new(socket);
 
             match self.request {
+                MaybeBatch::Single(request) if request.id.is_some() => {
+                    let response: ResponseObject = client.call(&request).or_fail()?;
+                    println!("{}", serde_json::to_string(&response).or_fail()?);
+                }
                 MaybeBatch::Single(request) => {
-                    if let Some(response) = client.call(&request).or_fail()? {
-                        println!("{}", serde_json::to_string(&response).or_fail()?);
-                    }
+                    client.cast(&request).or_fail()?;
+                }
+                MaybeBatch::Batch(requests) if requests.iter().any(|r| r.id.is_some()) => {
+                    let responses: Vec<ResponseObject> = client.call(&requests).or_fail()?;
+                    println!("{}", serde_json::to_string(&responses).or_fail()?);
                 }
                 MaybeBatch::Batch(requests) => {
-                    let responses = client.batch_call(&requests).or_fail()?;
-                    if !responses.is_empty() {
-                        println!("{}", serde_json::to_string(&responses).or_fail()?);
-                    }
+                    client.cast(&requests).or_fail()?;
                 }
             }
 

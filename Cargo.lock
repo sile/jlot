@@ -128,9 +128,9 @@ dependencies = [
 
 [[package]]
 name = "jsonlrpc"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d365923c9ed29827c950e6f8fe06f8f491d13ff3de057be29f45ff6a415acfe6"
+checksum = "d9532e8d0abaf35751b1d6210c9cc7a3648f3b59bd4ec0c1f68afbffd5ea44e4"
 dependencies = [
  "serde",
  "serde_json",

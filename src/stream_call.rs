@@ -212,27 +212,35 @@ impl ClientRunner {
     }
 
     fn recv_response(&mut self) -> orfail::Result<()> {
-        let response: MaybeBatch<ResponseObject> = self.stream.read_object().or_fail()?;
+        let mut response: MaybeBatch<ResponseWithMetadata> = self.stream.read_object().or_fail()?;
 
-        let mut metadata = if self.requests.is_empty() {
+        let metadata = if self.requests.is_empty() {
             None
         } else {
             let id = match &response {
-                MaybeBatch::Single(ResponseObject::Ok { id, .. }) => Some(id),
-                MaybeBatch::Single(ResponseObject::Err { id, .. }) => id.as_ref(),
-                MaybeBatch::Batch(batch) => match batch.first() {
-                    Some(ResponseObject::Ok { id, .. }) => Some(id),
-                    Some(ResponseObject::Err { id, .. }) => id.as_ref(),
-                    None => None,
-                },
+                MaybeBatch::Single(r) => r.id(),
+                MaybeBatch::Batch(batch) => batch.first().and_then(|r| r.id()),
             };
             id.and_then(|id| self.requests.remove(id))
         };
-        if let Some(metadata) = &mut metadata {
-            metadata.end_time = self.base_time.elapsed();
-        }
 
-        let output = Output { response, metadata };
+        let output = if let Some(mut metadata) = metadata {
+            metadata.end_time = self.base_time.elapsed();
+            match &mut response {
+                MaybeBatch::Single(response) => {
+                    response.metadata = Some(metadata);
+                }
+                MaybeBatch::Batch(responses) => {
+                    if let Some(r) = responses.first_mut() {
+                        r.metadata = Some(metadata);
+                    }
+                }
+            }
+            response
+        } else {
+            response
+        };
+
         self.output_tx.send(output).or_fail()?;
         self.ongoing_calls -= 1;
         Ok(())
@@ -285,13 +293,24 @@ impl Input {
     }
 }
 
+pub type Output = MaybeBatch<ResponseWithMetadata>;
+
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Output {
+pub struct ResponseWithMetadata {
     #[serde(flatten)]
-    pub response: MaybeBatch<ResponseObject>,
+    pub response: ResponseObject,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+}
+
+impl ResponseWithMetadata {
+    fn id(&self) -> Option<&RequestId> {
+        match &self.response {
+            ResponseObject::Ok { id, .. } => Some(id),
+            ResponseObject::Err { id, .. } => id.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

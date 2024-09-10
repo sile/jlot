@@ -20,7 +20,7 @@ pub struct StreamCallCommand {
     additional_server_addrs: Vec<String>,
 
     /// Maximum number of concurrent calls for each server.
-    #[clap(long, default_value = "1")]
+    #[clap(short, long, default_value = "1")]
     pipelining: NonZeroUsize,
 
     /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).

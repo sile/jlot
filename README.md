@@ -21,7 +21,9 @@ Usage: jlot <COMMAND>
 
 Commands:
   call             Execute a JSON-RPC call
+  stream-call      Execute a stream of JSON-RPC calls received from the standard input
   req              Generate a JSON-RPC request object JSON
+  stats            Calculate statistics from JSON objects outputted by executing the command `stream-call --add-metadata ...`
   run-echo-server  Run a JSON-RPC echo server (for development or testing purposes)
   help             Print this message or the help of the given subcommand(s)
 

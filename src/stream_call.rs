@@ -2,10 +2,12 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
     num::NonZeroUsize,
     sync::mpsc,
+    time::Duration,
 };
 
-use jsonlrpc::{JsonlStream, MaybeBatch, RequestObject, ResponseObject, RpcClient};
+use jsonlrpc::{JsonlStream, MaybeBatch, RequestObject, ResponseObject};
 use orfail::{Failure, OrFail};
+use serde::{Deserialize, Serialize};
 
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
@@ -52,8 +54,59 @@ impl StreamCallCommand {
         }
 
         let stdin = std::io::stdin();
-        let input_stream = JsonlStream::new(stdin.lock());
-        todo!()
+        let mut input_stream = JsonlStream::new(stdin.lock());
+
+        let stdout = std::io::stdout();
+        let mut output_stream = JsonlStream::new(stdout.lock());
+
+        let mut next_thread_index = 0;
+        let mut ongoing_calls = 0;
+        while let Some(mut input) = maybe_eos(input_stream.read_object()).or_fail()? {
+            // Send the input.
+            let mut retried_count = 0;
+            loop {
+                if let Err(e) = input_txs[next_thread_index].try_send(input) {
+                    match e {
+                        mpsc::TrySendError::Full(v) => {
+                            input = v;
+                            next_thread_index = (next_thread_index + 1) % input_txs.len();
+                            retried_count += 1;
+                            if retried_count == input_txs.len() {
+                                std::thread::sleep(Duration::from_millis(10));
+                                retried_count = 0;
+                            }
+                            continue;
+                        }
+                        mpsc::TrySendError::Disconnected(_) => {
+                            return Err(Failure::new(format!(
+                                "{next_thread_index}-th thread disconnected"
+                            )));
+                        }
+                    }
+                }
+
+                ongoing_calls += 1;
+                break;
+            }
+            next_thread_index = (next_thread_index + 1) % input_txs.len();
+
+            // Receive outputs.
+            while let Ok(output) = output_rx.try_recv() {
+                ongoing_calls -= 1;
+                output_stream.write_object(&output).or_fail()?;
+            }
+        }
+        for input_tx in input_txs {
+            std::mem::drop(input_tx);
+        }
+
+        // Receive remaining outputs.
+        for _ in 0..ongoing_calls {
+            let output = output_rx.recv().or_fail()?;
+            output_stream.write_object(&output).or_fail()?;
+        }
+
+        Ok(())
     }
 
     fn connect_to_servers(&self) -> orfail::Result<Vec<JsonlStream<TcpStream>>> {
@@ -99,13 +152,21 @@ impl ClientRunner {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 enum Output {
     Response(MaybeBatch<ResponseObject>),
     Metrics(Metrics),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Metrics {
     // TODO
+}
+
+fn maybe_eos<T>(result: serde_json::Result<T>) -> serde_json::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.io_error_kind() == Some(std::io::ErrorKind::UnexpectedEof) => Ok(None),
+        Err(e) => Err(e),
+    }
 }

@@ -8,7 +8,9 @@ use std::{
 
 use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
 use orfail::{Failure, OrFail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use crate::io;
 
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
@@ -66,7 +68,7 @@ impl StreamCallCommand {
         let mut next_thread_index = 0;
         let mut ongoing_calls = 0;
         let mut next_id = 0;
-        while let Some(request) = maybe_eos(input_stream.read_object()).or_fail()? {
+        while let Some(request) = io::maybe_eos(input_stream.read_object()).or_fail()? {
             let mut input = Input::new(request);
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
@@ -210,38 +212,27 @@ impl ClientRunner {
     }
 
     fn recv_response(&mut self) -> orfail::Result<()> {
-        let response: MaybeBatch<ResponseObject> = self.stream.read_object().or_fail()?;
+        let mut response: MaybeBatch<ResponseWithMetadata> = self.stream.read_object().or_fail()?;
 
-        let mut metadata = if self.requests.is_empty() {
+        let metadata = if self.requests.is_empty() {
             None
         } else {
-            let id = match &response {
-                MaybeBatch::Single(ResponseObject::Ok { id, .. }) => Some(id),
-                MaybeBatch::Single(ResponseObject::Err { id, .. }) => id.as_ref(),
-                MaybeBatch::Batch(batch) => match batch.first() {
-                    Some(ResponseObject::Ok { id, .. }) => Some(id),
-                    Some(ResponseObject::Err { id, .. }) => id.as_ref(),
-                    None => None,
-                },
-            };
-            id.and_then(|id| self.requests.remove(id))
+            response
+                .iter()
+                .find_map(|r| r.response.id())
+                .and_then(|id| self.requests.remove(id))
         };
-        if let Some(metadata) = &mut metadata {
+
+        if let Some(mut metadata) = metadata {
             metadata.end_time = self.base_time.elapsed();
+            if let Some(r) = response.iter_mut().next() {
+                r.metadata = Some(metadata);
+            }
         }
 
-        let output = Output { response, metadata };
-        self.output_tx.send(output).or_fail()?;
+        self.output_tx.send(response).or_fail()?;
         self.ongoing_calls -= 1;
         Ok(())
-    }
-}
-
-fn maybe_eos<T>(result: serde_json::Result<T>) -> serde_json::Result<Option<T>> {
-    match result {
-        Ok(value) => Ok(Some(value)),
-        Err(e) if e.io_error_kind() == Some(std::io::ErrorKind::UnexpectedEof) => Ok(None),
-        Err(e) => Err(e),
     }
 }
 
@@ -254,10 +245,7 @@ struct Input {
 
 impl Input {
     fn new(request: MaybeBatch<RequestObject>) -> Self {
-        let is_notification = match &request {
-            MaybeBatch::Single(r) => r.id.is_none(),
-            MaybeBatch::Batch(rs) => rs.iter().all(|r| r.id.is_none()),
-        };
+        let is_notification = request.iter().all(|r| r.id.is_none());
         Self {
             request,
             is_notification,
@@ -270,40 +258,31 @@ impl Input {
             return;
         }
 
-        match &mut self.request {
-            MaybeBatch::Single(r) => {
-                r.id = Some(RequestId::Number(*next_id));
+        for r in self.request.iter_mut().filter(|r| r.id.is_some()) {
+            r.id = Some(RequestId::Number(*next_id));
+            if self.metadata_id.is_none() {
                 self.metadata_id = r.id.clone();
-                *next_id += 1;
             }
-            MaybeBatch::Batch(batch) => {
-                for r in batch {
-                    if r.id.is_some() {
-                        r.id = Some(RequestId::Number(*next_id));
-                        if self.metadata_id.is_none() {
-                            self.metadata_id = r.id.clone();
-                        }
-                        *next_id += 1;
-                    }
-                }
-            }
+            *next_id += 1;
         }
     }
 }
 
-#[derive(Debug, Serialize)]
-struct Output {
+pub type Output = MaybeBatch<ResponseWithMetadata>;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResponseWithMetadata {
     #[serde(flatten)]
-    response: MaybeBatch<ResponseObject>,
+    pub response: ResponseObject,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Metadata>,
+    pub metadata: Option<Metadata>,
 }
 
-#[derive(Debug, Serialize)]
-struct Metadata {
-    request: MaybeBatch<RequestObject>,
-    server: SocketAddr,
-    start_time: Duration,
-    end_time: Duration,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Metadata {
+    pub request: MaybeBatch<RequestObject>,
+    pub server: SocketAddr,
+    pub start_time: Duration,
+    pub end_time: Duration,
 }

@@ -2,7 +2,7 @@ use clap::Parser;
 use orfail::OrFail;
 
 use jlot::{
-    call::CallCommand, req::ReqCommand, run_echo_server::RunEchoServerCommand,
+    call::CallCommand, req::ReqCommand, run_echo_server::RunEchoServerCommand, stats::StatsCommand,
     stream_call::StreamCallCommand,
 };
 
@@ -13,6 +13,7 @@ enum Args {
     Call(CallCommand),
     StreamCall(StreamCallCommand),
     Req(ReqCommand),
+    Stats(StatsCommand),
     RunEchoServer(RunEchoServerCommand),
 }
 
@@ -22,6 +23,7 @@ fn main() -> orfail::Result<()> {
         Args::Call(c) => c.run().or_fail()?,
         Args::StreamCall(c) => c.run().or_fail()?,
         Args::Req(c) => c.run().or_fail()?,
+        Args::Stats(c) => c.run().or_fail()?,
         Args::RunEchoServer(c) => c.run().or_fail()?,
     }
     Ok(())

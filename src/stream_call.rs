@@ -1,7 +1,7 @@
 use std::{
     net::{TcpStream, ToSocketAddrs},
     num::NonZeroUsize,
-    sync::mpsc,
+    sync::mpsc::{self, RecvError},
     time::Duration,
 };
 
@@ -43,6 +43,7 @@ impl StreamCallCommand {
                 output_tx,
                 pipelining,
                 output_metrics,
+                ongoing_calls: 0,
             };
             std::thread::spawn(move || {
                 runner
@@ -62,6 +63,8 @@ impl StreamCallCommand {
         let mut next_thread_index = 0;
         let mut ongoing_calls = 0;
         while let Some(mut input) = maybe_eos(input_stream.read_object()).or_fail()? {
+            let is_notification = is_notification(&input);
+
             // Send the input.
             let mut retried_count = 0;
             loop {
@@ -85,7 +88,9 @@ impl StreamCallCommand {
                     }
                 }
 
-                ongoing_calls += 1;
+                if !is_notification {
+                    ongoing_calls += 1;
+                }
                 break;
             }
             next_thread_index = (next_thread_index + 1) % input_txs.len();
@@ -144,17 +149,65 @@ struct ClientRunner {
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     output_metrics: bool,
+    ongoing_calls: usize,
 }
 
 impl ClientRunner {
-    fn run(self) -> orfail::Result<()> {
+    fn run(mut self) -> orfail::Result<()> {
+        while self.run_one().or_fail()? {}
         Ok(())
+    }
+
+    fn run_one(&mut self) -> orfail::Result<bool> {
+        while self.ongoing_calls < self.pipelining {
+            match self.input_rx.recv() {
+                Ok(req) => {
+                    self.send_request(req).or_fail()?;
+                }
+                Err(RecvError) => {
+                    if self.ongoing_calls == 0 {
+                        return Ok(false);
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.recv_response().or_fail()?;
+        Ok(true)
+    }
+
+    fn send_request(&mut self, req: MaybeBatch<RequestObject>) -> orfail::Result<()> {
+        // TODO: handle metrics
+        let is_notification = is_notification(&req);
+
+        self.stream.write_object(&req).or_fail()?;
+        if !is_notification {
+            self.ongoing_calls += 1;
+        }
+        Ok(())
+    }
+
+    fn recv_response(&mut self) -> orfail::Result<()> {
+        let res: MaybeBatch<ResponseObject> = self.stream.read_object().or_fail()?;
+        self.output_tx.send(Output::Response(res)).or_fail()?;
+        self.ongoing_calls -= 1;
+        Ok(())
+    }
+}
+
+fn is_notification(req: &MaybeBatch<RequestObject>) -> bool {
+    match req {
+        MaybeBatch::Single(req) => req.id.is_none(),
+        MaybeBatch::Batch(reqs) => reqs.iter().all(|req| req.id.is_none()),
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Output {
     Response(MaybeBatch<ResponseObject>),
+
+    // or extend response (add metrics and request fields)
     Metrics(Metrics),
 }
 

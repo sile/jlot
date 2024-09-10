@@ -29,20 +29,15 @@ impl CallCommand {
             socket.set_nodelay(true).or_fail()?;
             let mut client = RpcClient::new(socket);
 
-            match self.request {
-                MaybeBatch::Single(request) if request.id.is_some() => {
-                    let response: ResponseObject = client.call(&request).or_fail()?;
+            let is_notification = self.request.iter().any(|r| r.id.is_some());
+            match is_notification {
+                true => {
+                    client.cast(&self.request).or_fail()?;
+                }
+                false => {
+                    let response: MaybeBatch<ResponseObject> =
+                        client.call(&self.request).or_fail()?;
                     println!("{}", serde_json::to_string(&response).or_fail()?);
-                }
-                MaybeBatch::Single(request) => {
-                    client.cast(&request).or_fail()?;
-                }
-                MaybeBatch::Batch(requests) if requests.iter().any(|r| r.id.is_some()) => {
-                    let responses: Vec<ResponseObject> = client.call(&requests).or_fail()?;
-                    println!("{}", serde_json::to_string(&responses).or_fail()?);
-                }
-                MaybeBatch::Batch(requests) => {
-                    client.cast(&requests).or_fail()?;
                 }
             }
 

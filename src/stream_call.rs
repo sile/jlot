@@ -1,0 +1,309 @@
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
+    num::NonZeroUsize,
+    sync::mpsc::{self, RecvError},
+    time::{Duration, Instant},
+};
+
+use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
+use orfail::{Failure, OrFail};
+use serde::Serialize;
+
+/// Execute a stream of JSON-RPC calls received from the standard input.
+#[derive(Debug, clap::Args)]
+pub struct StreamCallCommand {
+    /// JSON-RPC server address or hostname.
+    server_addr: String,
+
+    /// Additional JSON-RPC servers to execute the calls in parallel.
+    additional_server_addrs: Vec<String>,
+
+    /// Maximum number of concurrent calls for each server.
+    #[clap(short, long, default_value = "1")]
+    pipelining: NonZeroUsize,
+
+    /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).
+    #[clap(short, long)]
+    add_metadata: bool,
+}
+
+impl StreamCallCommand {
+    pub fn run(self) -> orfail::Result<()> {
+        let streams = self.connect_to_servers().or_fail()?;
+        let mut input_txs = Vec::new();
+        let (output_tx, output_rx) = mpsc::channel();
+        let base_time = Instant::now();
+        for stream in streams {
+            let pipelining = self.pipelining.get();
+            let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
+            let output_tx = output_tx.clone();
+            let runner = ClientRunner {
+                server_addr: stream.inner().local_addr().or_fail()?,
+                stream,
+                base_time,
+                input_rx,
+                output_tx,
+                pipelining,
+                ongoing_calls: 0,
+                requests: HashMap::new(),
+            };
+            std::thread::spawn(move || {
+                runner
+                    .run()
+                    .or_fail()
+                    .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
+            });
+            input_txs.push(input_tx);
+        }
+
+        let stdin = std::io::stdin();
+        let mut input_stream = JsonlStream::new(stdin.lock());
+
+        let stdout = std::io::stdout();
+        let mut output_stream = JsonlStream::new(stdout.lock());
+
+        let mut next_thread_index = 0;
+        let mut ongoing_calls = 0;
+        let mut next_id = 0;
+        while let Some(request) = maybe_eos(input_stream.read_object()).or_fail()? {
+            let mut input = Input::new(request);
+            if self.add_metadata {
+                input.reassign_id(&mut next_id);
+            }
+
+            let is_notification = input.is_notification;
+
+            // Send the input.
+            let mut retried_count = 0;
+            loop {
+                if let Err(e) = input_txs[next_thread_index].try_send(input) {
+                    match e {
+                        mpsc::TrySendError::Full(v) => {
+                            input = v;
+                            next_thread_index = (next_thread_index + 1) % input_txs.len();
+                            retried_count += 1;
+                            if retried_count == input_txs.len() {
+                                std::thread::sleep(Duration::from_millis(10));
+                                retried_count = 0;
+                            }
+                            continue;
+                        }
+                        mpsc::TrySendError::Disconnected(_) => {
+                            return Err(Failure::new(format!(
+                                "{next_thread_index}-th thread disconnected"
+                            )));
+                        }
+                    }
+                }
+
+                if !is_notification {
+                    ongoing_calls += 1;
+                }
+                break;
+            }
+            next_thread_index = (next_thread_index + 1) % input_txs.len();
+
+            // Receive outputs.
+            while let Ok(output) = output_rx.try_recv() {
+                ongoing_calls -= 1;
+                output_stream.write_object(&output).or_fail()?;
+            }
+        }
+        for input_tx in input_txs {
+            std::mem::drop(input_tx);
+        }
+
+        // Receive remaining outputs.
+        for _ in 0..ongoing_calls {
+            let output = output_rx.recv().or_fail()?;
+            output_stream.write_object(&output).or_fail()?;
+        }
+
+        Ok(())
+    }
+
+    fn connect_to_servers(&self) -> orfail::Result<Vec<JsonlStream<TcpStream>>> {
+        let mut streams = Vec::new();
+        for server in std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
+        {
+            let mut last_connect_error = None;
+            for server_addr in server.to_socket_addrs().or_fail()? {
+                match TcpStream::connect(server_addr)
+                    .or_fail_with(|e| format!("Failed to connect to '{server_addr}': {e}"))
+                {
+                    Ok(socket) => {
+                        socket.set_nodelay(true).or_fail()?;
+                        streams.push(JsonlStream::new(socket));
+                        break;
+                    }
+                    Err(error) => {
+                        last_connect_error = Some(error);
+                        continue;
+                    }
+                };
+            }
+            if let Some(e) = last_connect_error {
+                return Err(e);
+            }
+        }
+        Ok(streams)
+    }
+}
+
+#[derive(Debug)]
+struct ClientRunner {
+    stream: JsonlStream<TcpStream>,
+    server_addr: SocketAddr,
+    base_time: Instant,
+    input_rx: mpsc::Receiver<Input>,
+    output_tx: mpsc::Sender<Output>,
+    pipelining: usize,
+    ongoing_calls: usize,
+    requests: HashMap<RequestId, Metadata>,
+}
+
+impl ClientRunner {
+    fn run(mut self) -> orfail::Result<()> {
+        while self.run_one().or_fail()? {}
+        Ok(())
+    }
+
+    fn run_one(&mut self) -> orfail::Result<bool> {
+        while self.ongoing_calls < self.pipelining {
+            match self.input_rx.recv() {
+                Ok(input) => {
+                    self.send_request(input).or_fail()?;
+                }
+                Err(RecvError) => {
+                    if self.ongoing_calls == 0 {
+                        return Ok(false);
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.recv_response().or_fail()?;
+        Ok(true)
+    }
+
+    fn send_request(&mut self, input: Input) -> orfail::Result<()> {
+        let is_notification = input.is_notification;
+
+        let start_time = self.base_time.elapsed();
+        self.stream.write_object(&input.request).or_fail()?;
+        if !is_notification {
+            self.ongoing_calls += 1;
+
+            if let Some(id) = input.metadata_id {
+                let metadata = Metadata {
+                    request: input.request,
+                    server: self.server_addr,
+                    start_time,
+                    end_time: Duration::default(),
+                };
+                self.requests.insert(id, metadata);
+            }
+        }
+        Ok(())
+    }
+
+    fn recv_response(&mut self) -> orfail::Result<()> {
+        let response: MaybeBatch<ResponseObject> = self.stream.read_object().or_fail()?;
+
+        let mut metadata = if self.requests.is_empty() {
+            None
+        } else {
+            let id = match &response {
+                MaybeBatch::Single(ResponseObject::Ok { id, .. }) => Some(id),
+                MaybeBatch::Single(ResponseObject::Err { id, .. }) => id.as_ref(),
+                MaybeBatch::Batch(batch) => match batch.first() {
+                    Some(ResponseObject::Ok { id, .. }) => Some(id),
+                    Some(ResponseObject::Err { id, .. }) => id.as_ref(),
+                    None => None,
+                },
+            };
+            id.and_then(|id| self.requests.remove(id))
+        };
+        if let Some(metadata) = &mut metadata {
+            metadata.end_time = self.base_time.elapsed();
+        }
+
+        let output = Output { response, metadata };
+        self.output_tx.send(output).or_fail()?;
+        self.ongoing_calls -= 1;
+        Ok(())
+    }
+}
+
+fn maybe_eos<T>(result: serde_json::Result<T>) -> serde_json::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(e) if e.io_error_kind() == Some(std::io::ErrorKind::UnexpectedEof) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+#[derive(Debug)]
+struct Input {
+    request: MaybeBatch<RequestObject>,
+    is_notification: bool,
+    metadata_id: Option<RequestId>,
+}
+
+impl Input {
+    fn new(request: MaybeBatch<RequestObject>) -> Self {
+        let is_notification = match &request {
+            MaybeBatch::Single(r) => r.id.is_none(),
+            MaybeBatch::Batch(rs) => rs.iter().all(|r| r.id.is_none()),
+        };
+        Self {
+            request,
+            is_notification,
+            metadata_id: None,
+        }
+    }
+
+    fn reassign_id(&mut self, next_id: &mut i64) {
+        if self.is_notification {
+            return;
+        }
+
+        match &mut self.request {
+            MaybeBatch::Single(r) => {
+                r.id = Some(RequestId::Number(*next_id));
+                self.metadata_id = r.id.clone();
+                *next_id += 1;
+            }
+            MaybeBatch::Batch(batch) => {
+                for r in batch {
+                    if r.id.is_some() {
+                        r.id = Some(RequestId::Number(*next_id));
+                        if self.metadata_id.is_none() {
+                            self.metadata_id = r.id.clone();
+                        }
+                        *next_id += 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct Output {
+    #[serde(flatten)]
+    response: MaybeBatch<ResponseObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<Metadata>,
+}
+
+#[derive(Debug, Serialize)]
+struct Metadata {
+    request: MaybeBatch<RequestObject>,
+    server: SocketAddr,
+    start_time: Duration,
+    end_time: Duration,
+}

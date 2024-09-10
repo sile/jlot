@@ -8,7 +8,9 @@ use std::{
 
 use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
 use orfail::{Failure, OrFail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use crate::io;
 
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
@@ -66,7 +68,7 @@ impl StreamCallCommand {
         let mut next_thread_index = 0;
         let mut ongoing_calls = 0;
         let mut next_id = 0;
-        while let Some(request) = maybe_eos(input_stream.read_object()).or_fail()? {
+        while let Some(request) = io::maybe_eos(input_stream.read_object()).or_fail()? {
             let mut input = Input::new(request);
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
@@ -237,14 +239,6 @@ impl ClientRunner {
     }
 }
 
-fn maybe_eos<T>(result: serde_json::Result<T>) -> serde_json::Result<Option<T>> {
-    match result {
-        Ok(value) => Ok(Some(value)),
-        Err(e) if e.io_error_kind() == Some(std::io::ErrorKind::UnexpectedEof) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
 #[derive(Debug)]
 struct Input {
     request: MaybeBatch<RequestObject>,
@@ -291,19 +285,19 @@ impl Input {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct Output {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Output {
     #[serde(flatten)]
-    response: MaybeBatch<ResponseObject>,
+    pub response: MaybeBatch<ResponseObject>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    metadata: Option<Metadata>,
+    pub metadata: Option<Metadata>,
 }
 
-#[derive(Debug, Serialize)]
-struct Metadata {
-    request: MaybeBatch<RequestObject>,
-    server: SocketAddr,
-    start_time: Duration,
-    end_time: Duration,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Metadata {
+    pub request: MaybeBatch<RequestObject>,
+    pub server: SocketAddr,
+    pub start_time: Duration,
+    pub end_time: Duration,
 }

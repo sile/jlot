@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams};
 use orfail::OrFail;
 
@@ -15,6 +17,9 @@ pub struct ReqCommand {
     /// If not provided, the request is regarded as a notification.
     #[clap(long)]
     id: Option<RequestId>,
+
+    #[clap(short, long, default_value = "1")]
+    count: NonZeroUsize,
 }
 
 impl ReqCommand {
@@ -25,7 +30,11 @@ impl ReqCommand {
             params: self.params,
             id: self.id,
         };
-        println!("{}", serde_json::to_string(&request).or_fail()?);
+
+        let json = serde_json::to_string(&request).or_fail()?;
+        for _ in 0..self.count.get() {
+            println!("{json}");
+        }
         Ok(())
     }
 }

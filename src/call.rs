@@ -29,7 +29,7 @@ impl CallCommand {
             socket.set_nodelay(true).or_fail()?;
             let mut client = RpcClient::new(socket);
 
-            let is_notification = self.request.iter().any(|r| r.id.is_some());
+            let is_notification = self.request.iter().all(|r| r.id.is_none());
             match is_notification {
                 true => {
                     client.cast(&self.request).or_fail()?;

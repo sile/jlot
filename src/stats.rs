@@ -35,8 +35,9 @@ struct Stats {
     duration: f64,
     max_concurrency: usize,
     count: Counter,
-    latency: Latency,
+    rps: f64,
     bps: Bps,
+    latency: Latency,
 
     #[serde(skip)]
     start_end_times: Vec<(Duration, Duration)>,
@@ -71,6 +72,8 @@ impl Stats {
         if self.duration > 0.0 {
             self.bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
             self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
+
+            self.rps = self.count.requests as f64 / self.duration;
         }
 
         if !self.latencies.is_empty() {

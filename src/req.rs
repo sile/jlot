@@ -25,7 +25,7 @@ impl ReqCommand {
             params: self.params,
             id: self.id,
         };
-        serde_json::to_writer(std::io::stdout(), &request).or_fail()?;
+        println!("{}", serde_json::to_string(&request).or_fail()?);
         Ok(())
     }
 }

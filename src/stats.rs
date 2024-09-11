@@ -95,7 +95,8 @@ impl Stats {
                 .iter()
                 .rev()
                 .take_while(|x| start < x.1)
-                .count();
+                .count()
+                + 1;
             self.max_concurrency = self.max_concurrency.max(concurrency);
         }
     }

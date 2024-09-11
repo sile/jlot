@@ -35,8 +35,9 @@ struct Stats {
     duration: f64,
     max_concurrency: usize,
     count: Counter,
-    latency: Latency,
+    rps: f64,
     bps: Bps,
+    latency: Latency,
 
     #[serde(skip)]
     start_end_times: Vec<(Duration, Duration)>,
@@ -53,9 +54,26 @@ struct Stats {
 
 impl Stats {
     fn finalize(&mut self) {
+        self.duration = self
+            .start_end_times
+            .iter()
+            .map(|(_, end)| *end)
+            .max()
+            .unwrap_or_default()
+            .saturating_sub(
+                self.start_end_times
+                    .iter()
+                    .map(|(start, _)| *start)
+                    .min()
+                    .unwrap_or_default(),
+            )
+            .as_secs_f64();
+
         if self.duration > 0.0 {
             self.bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
             self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
+
+            self.rps = self.count.requests as f64 / self.duration;
         }
 
         if !self.latencies.is_empty() {
@@ -72,11 +90,13 @@ impl Stats {
 
         self.start_end_times.sort();
         for i in 0..self.start_end_times.len() {
-            let end = self.start_end_times[i].1;
-            let concurrency = self.start_end_times[i..]
+            let (start, _end) = self.start_end_times[i];
+            let concurrency = self.start_end_times[..i]
                 .iter()
-                .take_while(|x| x.0 <= end)
-                .count();
+                .rev()
+                .take_while(|x| start < x.1)
+                .count()
+                + 1;
             self.max_concurrency = self.max_concurrency.max(concurrency);
         }
     }
@@ -104,8 +124,6 @@ impl Stats {
     }
 
     fn handle_metadata(&mut self, metadata: &Metadata, output: &Output) {
-        self.duration = self.duration.max(metadata.end_time.as_secs_f64());
-
         self.start_end_times
             .push((metadata.start_time, metadata.end_time));
         self.latencies

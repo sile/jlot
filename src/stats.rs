@@ -90,16 +90,12 @@ impl Stats {
 
         self.start_end_times.sort();
         for i in 0..self.start_end_times.len() {
-            let (start, end) = self.start_end_times[i];
+            let (start, _end) = self.start_end_times[i];
             let concurrency = self.start_end_times[..i]
                 .iter()
                 .rev()
                 .take_while(|x| start < x.1)
-                .count()
-                + self.start_end_times[i..]
-                    .iter()
-                    .take_while(|x| x.0 < end)
-                    .count();
+                .count();
             self.max_concurrency = self.max_concurrency.max(concurrency);
         }
     }

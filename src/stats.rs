@@ -53,6 +53,21 @@ struct Stats {
 
 impl Stats {
     fn finalize(&mut self) {
+        self.duration = self
+            .start_end_times
+            .iter()
+            .map(|(_, end)| *end)
+            .max()
+            .unwrap_or_default()
+            .saturating_sub(
+                self.start_end_times
+                    .iter()
+                    .map(|(start, _)| *start)
+                    .min()
+                    .unwrap_or_default(),
+            )
+            .as_secs_f64();
+
         if self.duration > 0.0 {
             self.bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
             self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
@@ -109,8 +124,6 @@ impl Stats {
     }
 
     fn handle_metadata(&mut self, metadata: &Metadata, output: &Output) {
-        self.duration = self.duration.max(metadata.end_time.as_secs_f64());
-
         self.start_end_times
             .push((metadata.start_time, metadata.end_time));
         self.latencies

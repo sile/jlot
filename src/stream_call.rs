@@ -28,6 +28,10 @@ pub struct StreamCallCommand {
     /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).
     #[clap(short, long)]
     add_metadata: bool,
+
+    /// Read the entire standard input stream before sending any requests.
+    #[clap(long)]
+    preread: bool,
 }
 
 impl StreamCallCommand {
@@ -68,8 +72,22 @@ impl StreamCallCommand {
         let mut next_thread_index = 0;
         let mut ongoing_calls = 0;
         let mut next_id = 0;
-        while let Some(request) = io::maybe_eos(input_stream.read_object()).or_fail()? {
-            let mut input = Input::new(request);
+
+        let mut inputs = Vec::new();
+        if self.preread {
+            while let Some(request) = io::maybe_eos(input_stream.read_object()).or_fail()? {
+                inputs.push(Input::new(request));
+            }
+            inputs.reverse();
+        }
+
+        while let Some(mut input) = if self.preread {
+            inputs.pop()
+        } else {
+            io::maybe_eos(input_stream.read_object())
+                .or_fail()?
+                .map(Input::new)
+        } {
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
             }

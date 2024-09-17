@@ -45,7 +45,7 @@ impl StreamCallCommand {
             let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
             let runner = ClientRunner {
-                server_addr: stream.inner().local_addr().or_fail()?,
+                server_addr: stream.inner().peer_addr().or_fail()?,
                 stream,
                 base_time,
                 input_rx,

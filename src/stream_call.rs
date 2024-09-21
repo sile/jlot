@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    net::{SocketAddr, TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
     sync::mpsc::{self, RecvError},
     time::{Duration, Instant},
@@ -147,25 +147,10 @@ impl StreamCallCommand {
         let mut streams = Vec::new();
         for server in std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
         {
-            let mut last_connect_error = None;
-            for server_addr in server.to_socket_addrs().or_fail()? {
-                match TcpStream::connect(server_addr)
-                    .or_fail_with(|e| format!("Failed to connect to '{server_addr}': {e}"))
-                {
-                    Ok(socket) => {
-                        socket.set_nodelay(true).or_fail()?;
-                        streams.push(JsonlStream::new(socket));
-                        break;
-                    }
-                    Err(error) => {
-                        last_connect_error = Some(error);
-                        continue;
-                    }
-                };
-            }
-            if let Some(e) = last_connect_error {
-                return Err(e);
-            }
+            let socket = TcpStream::connect(server)
+                .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
+            socket.set_nodelay(true).or_fail()?;
+            streams.push(JsonlStream::new(socket));
         }
         Ok(streams)
     }

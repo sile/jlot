@@ -31,7 +31,7 @@ impl RunEchoServerCommand {
 fn handle_client(stream: TcpStream) -> orfail::Result<()> {
     let mut stream = JsonlStream::new(stream);
     loop {
-        let response = match stream.read_object::<MaybeBatch<RequestObject>>() {
+        let response = match stream.read_value::<MaybeBatch<RequestObject>>() {
             Ok(MaybeBatch::Single(request)) => echo_response(request).map(MaybeBatch::Single),
             Ok(MaybeBatch::Batch(requests)) => {
                 let responses = requests
@@ -62,7 +62,7 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
         };
 
         if let Some(response) = response {
-            stream.write_object(&response).or_fail()?;
+            stream.write_value(&response).or_fail()?;
         }
     }
 

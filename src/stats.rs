@@ -21,7 +21,7 @@ impl StatsCommand {
         let stdin = std::io::stdin();
         let mut stream = JsonlStream::new(stdin.lock());
         let mut stats = Stats::default();
-        while let Some(output) = io::maybe_eos(stream.read_object::<Output>()).or_fail()? {
+        while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
             stats.handle_output(output);
         }
         stats.finalize();

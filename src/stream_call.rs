@@ -76,7 +76,7 @@ impl StreamCallCommand {
 
         let mut inputs = Vec::new();
         if self.preread {
-            while let Some(request) = io::maybe_eos(input_stream.read_object()).or_fail()? {
+            while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
                 inputs.push(Input::new(request));
             }
             inputs.reverse();
@@ -85,7 +85,7 @@ impl StreamCallCommand {
         while let Some(mut input) = if self.preread {
             inputs.pop()
         } else {
-            io::maybe_eos(input_stream.read_object())
+            io::maybe_eos(input_stream.read_value())
                 .or_fail()?
                 .map(Input::new)
         } {
@@ -128,7 +128,7 @@ impl StreamCallCommand {
             // Receive outputs.
             while let Ok(output) = output_rx.try_recv() {
                 ongoing_calls -= 1;
-                output_stream.write_object(&output).or_fail()?;
+                output_stream.write_value(&output).or_fail()?;
             }
         }
         for input_tx in input_txs {
@@ -138,7 +138,7 @@ impl StreamCallCommand {
         // Receive remaining outputs.
         for _ in 0..ongoing_calls {
             let output = output_rx.recv().or_fail()?;
-            output_stream.write_object(&output).or_fail()?;
+            output_stream.write_value(&output).or_fail()?;
         }
 
         Ok(())
@@ -198,7 +198,7 @@ impl ClientRunner {
         let is_notification = input.is_notification;
 
         let start_time = self.base_time.elapsed();
-        self.stream.write_object(&input.request).or_fail()?;
+        self.stream.write_value(&input.request).or_fail()?;
         if !is_notification {
             self.ongoing_calls += 1;
 
@@ -216,7 +216,7 @@ impl ClientRunner {
     }
 
     fn recv_response(&mut self) -> orfail::Result<()> {
-        let mut response: MaybeBatch<ResponseWithMetadata> = self.stream.read_object().or_fail()?;
+        let mut response: MaybeBatch<ResponseWithMetadata> = self.stream.read_value().or_fail()?;
 
         let metadata = if self.requests.is_empty() {
             None

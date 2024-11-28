@@ -15,6 +15,7 @@ use crate::io;
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
 pub struct StreamCallCommand {
+    // TODO: Add dry_run to know the maximum performance without communicating the servers.
     /// JSON-RPC server address or hostname.
     server_addr: String,
 

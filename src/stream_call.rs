@@ -33,6 +33,9 @@ pub struct StreamCallCommand {
     #[clap(long)]
     preread: bool,
 
+    /// Run the command without connecting to or communicating with actual servers.
+    ///
+    /// All RPC responses will be set to `null`.
     #[clap(long)]
     dry_run: bool,
 }

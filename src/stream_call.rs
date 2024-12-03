@@ -43,7 +43,7 @@ impl StreamCallCommand {
         let mut input_txs = Vec::new();
         let (output_tx, output_rx) = mpsc::channel();
         let base_time = Instant::now();
-        for (server_addr, stream) in streams {
+        for (server_addr, stream) in self.servers().zip(streams) {
             let pipelining = self.pipelining.get();
             let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
@@ -164,20 +164,23 @@ impl StreamCallCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<(&String, Option<JsonlStream<TcpStream>>)>> {
+    fn connect_to_servers(&self) -> orfail::Result<Vec<Option<JsonlStream<TcpStream>>>> {
         let mut streams = Vec::new();
-        for server in std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
-        {
+        for server in self.servers() {
             if self.dry_run {
-                streams.push((server, None));
+                streams.push(None);
             } else {
                 let socket = TcpStream::connect(server)
                     .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
                 socket.set_nodelay(true).or_fail()?;
-                streams.push((server, Some(JsonlStream::new(socket))));
+                streams.push(Some(JsonlStream::new(socket)));
             }
         }
         Ok(streams)
+    }
+
+    fn servers(&self) -> impl '_ + Iterator<Item = &String> {
+        std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
     }
 }
 

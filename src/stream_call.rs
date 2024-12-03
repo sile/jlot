@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
     sync::mpsc::{self, RecvError},
@@ -15,7 +15,6 @@ use crate::io;
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
 pub struct StreamCallCommand {
-    // TODO: Add dry_run to know the maximum performance without communicating the servers.
     /// JSON-RPC server address or hostname.
     server_addr: String,
 
@@ -33,6 +32,9 @@ pub struct StreamCallCommand {
     /// Read the entire standard input stream before sending any requests.
     #[clap(long)]
     preread: bool,
+
+    #[clap(long)]
+    dry_run: bool,
 }
 
 impl StreamCallCommand {
@@ -41,26 +43,44 @@ impl StreamCallCommand {
         let mut input_txs = Vec::new();
         let (output_tx, output_rx) = mpsc::channel();
         let base_time = Instant::now();
-        for stream in streams {
+        for (server_addr, stream) in streams {
             let pipelining = self.pipelining.get();
             let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
-            let runner = ClientRunner {
-                server_addr: stream.inner().peer_addr().or_fail()?,
-                stream,
-                base_time,
-                input_rx,
-                output_tx,
-                pipelining,
-                ongoing_calls: 0,
-                requests: HashMap::new(),
-            };
-            std::thread::spawn(move || {
-                runner
-                    .run()
-                    .or_fail()
-                    .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
-            });
+            if let Some(stream) = stream {
+                let runner = ClientRunner {
+                    server_addr: stream.inner().peer_addr().or_fail()?,
+                    stream,
+                    base_time,
+                    input_rx,
+                    output_tx,
+                    pipelining,
+                    ongoing_calls: 0,
+                    requests: HashMap::new(),
+                };
+                std::thread::spawn(move || {
+                    runner
+                        .run()
+                        .or_fail()
+                        .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
+                });
+            } else {
+                let runner = ClientDryRunner {
+                    server_addr: server_addr.parse::<SocketAddr>().or_fail()?,
+                    base_time,
+                    input_rx,
+                    output_tx,
+                    pipelining,
+                    ongoing_calls: 0,
+                    responses: VecDeque::new(),
+                };
+                std::thread::spawn(move || {
+                    runner
+                        .run()
+                        .or_fail()
+                        .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
+                });
+            }
             input_txs.push(input_tx);
         }
 
@@ -144,14 +164,18 @@ impl StreamCallCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<JsonlStream<TcpStream>>> {
+    fn connect_to_servers(&self) -> orfail::Result<Vec<(&String, Option<JsonlStream<TcpStream>>)>> {
         let mut streams = Vec::new();
         for server in std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
         {
-            let socket = TcpStream::connect(server)
-                .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
-            socket.set_nodelay(true).or_fail()?;
-            streams.push(JsonlStream::new(socket));
+            if self.dry_run {
+                streams.push((server, None));
+            } else {
+                let socket = TcpStream::connect(server)
+                    .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
+                socket.set_nodelay(true).or_fail()?;
+                streams.push((server, Some(JsonlStream::new(socket))));
+            }
         }
         Ok(streams)
     }
@@ -289,4 +313,89 @@ pub struct Metadata {
     pub server: SocketAddr,
     pub start_time: Duration,
     pub end_time: Duration,
+}
+
+#[derive(Debug)]
+struct ClientDryRunner {
+    server_addr: SocketAddr,
+    base_time: Instant,
+    input_rx: mpsc::Receiver<Input>,
+    output_tx: mpsc::Sender<Output>,
+    pipelining: usize,
+    ongoing_calls: usize,
+    responses: VecDeque<ResponseWithMetadata>,
+}
+
+impl ClientDryRunner {
+    fn run(mut self) -> orfail::Result<()> {
+        while self.run_one().or_fail()? {}
+        Ok(())
+    }
+
+    fn run_one(&mut self) -> orfail::Result<bool> {
+        while self.ongoing_calls < self.pipelining {
+            match self.input_rx.recv() {
+                Ok(input) => {
+                    self.send_request(input);
+                }
+                Err(RecvError) => {
+                    if self.ongoing_calls == 0 {
+                        return Ok(false);
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.recv_response().or_fail()?;
+        Ok(true)
+    }
+
+    fn send_request(&mut self, input: Input) {
+        let is_notification = input.is_notification;
+
+        let start_time = self.base_time.elapsed();
+        if !is_notification {
+            self.ongoing_calls += 1;
+
+            let mut response = ResponseWithMetadata {
+                response: ResponseObject::Ok {
+                    jsonrpc: jsonlrpc::JsonRpcVersion::V2,
+                    id: input
+                        .request
+                        .iter()
+                        .next()
+                        .and_then(|r| r.id.clone())
+                        .or_fail()
+                        .expect("unreachable"),
+                    result: serde_json::Value::Null,
+                },
+                metadata: None,
+            };
+
+            if input.metadata_id.is_some() {
+                let metadata = Metadata {
+                    request: input.request,
+                    server: self.server_addr,
+                    start_time,
+                    end_time: Duration::default(),
+                };
+                response.metadata = Some(metadata);
+            }
+
+            self.responses.push_back(response);
+        }
+    }
+
+    fn recv_response(&mut self) -> orfail::Result<()> {
+        let mut response = self.responses.pop_front().or_fail()?;
+        if let Some(metadata) = &mut response.metadata {
+            metadata.end_time = self.base_time.elapsed();
+        }
+        self.output_tx
+            .send(MaybeBatch::Single(response))
+            .or_fail()?;
+        self.ongoing_calls -= 1;
+        Ok(())
+    }
 }

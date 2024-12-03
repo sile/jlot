@@ -45,6 +45,15 @@ impl StreamCallCommand {
         let streams = self.connect_to_servers().or_fail()?;
         let mut input_txs = Vec::new();
         let (output_tx, output_rx) = mpsc::channel();
+
+        let output_thread = std::thread::spawn(move || {
+            let stdout = std::io::stdout();
+            let mut output_stream = JsonlStream::new(stdout.lock());
+            while let Ok(output) = output_rx.recv() {
+                let _ = output_stream.write_value(&output);
+            }
+        });
+
         let base_time = Instant::now();
         for (server_addr, stream) in self.servers().zip(streams) {
             let pipelining = self.pipelining.get();
@@ -90,11 +99,7 @@ impl StreamCallCommand {
         let stdin = std::io::stdin();
         let mut input_stream = JsonlStream::new(stdin.lock());
 
-        let stdout = std::io::stdout();
-        let mut output_stream = JsonlStream::new(stdout.lock());
-
         let mut next_thread_index = 0;
-        let mut ongoing_calls = 0;
         let mut next_id = 0;
 
         let mut inputs = Vec::new();
@@ -115,8 +120,6 @@ impl StreamCallCommand {
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
             }
-
-            let is_notification = input.is_notification;
 
             // Send the input.
             let mut retried_count = 0;
@@ -140,29 +143,13 @@ impl StreamCallCommand {
                         }
                     }
                 }
-
-                if !is_notification {
-                    ongoing_calls += 1;
-                }
                 break;
             }
             next_thread_index = (next_thread_index + 1) % input_txs.len();
-
-            // Receive outputs.
-            while let Ok(output) = output_rx.try_recv() {
-                ongoing_calls -= 1;
-                output_stream.write_value(&output).or_fail()?;
-            }
         }
-        for input_tx in input_txs {
-            std::mem::drop(input_tx);
-        }
-
-        // Receive remaining outputs.
-        for _ in 0..ongoing_calls {
-            let output = output_rx.recv().or_fail()?;
-            output_stream.write_value(&output).or_fail()?;
-        }
+        std::mem::drop(output_tx);
+        std::mem::drop(input_txs);
+        let _ = output_thread.join();
 
         Ok(())
     }

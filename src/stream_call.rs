@@ -132,7 +132,7 @@ impl StreamCallCommand {
                             next_thread_index = (next_thread_index + 1) % input_txs.len();
                             retried_count += 1;
                             if retried_count == input_txs.len() {
-                                std::thread::sleep(Duration::from_millis(10));
+                                //std::thread::sleep(Duration::from_millis(1));
                                 retried_count = 0;
                             }
                             continue;
@@ -178,14 +178,16 @@ impl StreamCallCommand {
         let servers = 1 + self.additional_server_addrs.len();
         let pipelining = self.concurrency.get() / servers;
         let mut remainings = self.concurrency.get() % servers;
-        (0..servers).map(move |_| {
-            if remainings > 0 {
-                remainings -= 1;
-                pipelining + 1
-            } else {
-                pipelining
-            }
-        })
+        (0..servers)
+            .map(move |_| {
+                if remainings > 0 {
+                    remainings -= 1;
+                    pipelining + 1
+                } else {
+                    pipelining
+                }
+            })
+            .take_while(|pipelining| *pipelining > 0)
     }
 }
 

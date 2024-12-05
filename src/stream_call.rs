@@ -21,9 +21,9 @@ pub struct StreamCallCommand {
     /// Additional JSON-RPC servers to execute the calls in parallel.
     additional_server_addrs: Vec<String>,
 
-    /// Maximum number of concurrent calls for each server.
+    /// Maximum number of concurrent calls.
     #[clap(short, long, default_value = "1")]
-    pipelining: NonZeroUsize,
+    concurrency: NonZeroUsize,
 
     /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).
     #[clap(short, long)]
@@ -55,8 +55,9 @@ impl StreamCallCommand {
         });
 
         let base_time = Instant::now();
-        for (server_addr, stream) in self.servers().zip(streams) {
-            let pipelining = self.pipelining.get();
+        for ((server_addr, stream), pipelining) in
+            self.servers().zip(streams).zip(self.pipelinings())
+        {
             let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
             if let Some(stream) = stream {
@@ -171,6 +172,20 @@ impl StreamCallCommand {
 
     fn servers(&self) -> impl '_ + Iterator<Item = &String> {
         std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
+    }
+
+    fn pipelinings(&self) -> impl Iterator<Item = usize> {
+        let servers = 1 + self.additional_server_addrs.len();
+        let pipelining = self.concurrency.get() / servers;
+        let mut remainings = self.concurrency.get() % servers;
+        (0..servers).map(move |_| {
+            if remainings > 0 {
+                remainings -= 1;
+                pipelining + 1
+            } else {
+                pipelining
+            }
+        })
     }
 }
 

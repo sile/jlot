@@ -124,27 +124,23 @@ impl StreamCallCommand {
 
             // Send the input.
             let mut retried_count = 0;
-            loop {
-                if let Err(e) = input_txs[next_thread_index].try_send(input) {
-                    match e {
-                        mpsc::TrySendError::Full(v) => {
-                            input = v;
-                            next_thread_index = (next_thread_index + 1) % input_txs.len();
-                            retried_count += 1;
-                            if retried_count == input_txs.len() {
-                                //std::thread::sleep(Duration::from_millis(1));
-                                retried_count = 0;
-                            }
-                            continue;
-                        }
-                        mpsc::TrySendError::Disconnected(_) => {
-                            return Err(Failure::new(format!(
-                                "{next_thread_index}-th thread disconnected"
-                            )));
+            while let Err(e) = input_txs[next_thread_index].try_send(input) {
+                match e {
+                    mpsc::TrySendError::Full(v) => {
+                        input = v;
+                        next_thread_index = (next_thread_index + 1) % input_txs.len();
+                        retried_count += 1;
+                        if retried_count == input_txs.len() {
+                            std::thread::sleep(Duration::from_millis(10));
+                            retried_count = 0;
                         }
                     }
+                    mpsc::TrySendError::Disconnected(_) => {
+                        return Err(Failure::new(format!(
+                            "{next_thread_index}-th thread disconnected"
+                        )));
+                    }
                 }
-                break;
             }
             next_thread_index = (next_thread_index + 1) % input_txs.len();
         }

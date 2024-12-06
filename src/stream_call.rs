@@ -7,7 +7,7 @@ use std::{
 };
 
 use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
-use orfail::{Failure, OrFail};
+use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
 use crate::io;
@@ -43,7 +43,6 @@ pub struct StreamCallCommand {
 impl StreamCallCommand {
     pub fn run(self) -> orfail::Result<()> {
         let streams = self.connect_to_servers().or_fail()?;
-        let mut input_txs = Vec::new();
         let (output_tx, output_rx) = mpsc::channel();
 
         let output_thread = std::thread::spawn(move || {
@@ -55,17 +54,17 @@ impl StreamCallCommand {
         });
 
         let base_time = Instant::now();
+        let (mut input_tx, input_rx) = spmc::channel();
         for ((server_addr, stream), pipelining) in
             self.servers().zip(streams).zip(self.pipelinings())
         {
-            let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
             if let Some(stream) = stream {
                 let runner = ClientRunner {
                     server_addr: stream.inner().peer_addr().or_fail()?,
                     stream,
                     base_time,
-                    input_rx,
+                    input_rx: input_rx.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -81,7 +80,7 @@ impl StreamCallCommand {
                 let runner = ClientDryRunner {
                     server_addr: server_addr.parse::<SocketAddr>().or_fail()?,
                     base_time,
-                    input_rx,
+                    input_rx: input_rx.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -94,13 +93,11 @@ impl StreamCallCommand {
                         .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
                 });
             }
-            input_txs.push(input_tx);
         }
 
         let stdin = std::io::stdin();
         let mut input_stream = JsonlStream::new(stdin.lock());
 
-        let mut next_thread_index = 0;
         let mut next_id = 0;
 
         let mut inputs = Vec::new();
@@ -122,30 +119,10 @@ impl StreamCallCommand {
                 input.reassign_id(&mut next_id);
             }
 
-            // Send the input.
-            let mut retried_count = 0;
-            while let Err(e) = input_txs[next_thread_index].try_send(input) {
-                match e {
-                    mpsc::TrySendError::Full(v) => {
-                        input = v;
-                        next_thread_index = (next_thread_index + 1) % input_txs.len();
-                        retried_count += 1;
-                        if retried_count == input_txs.len() {
-                            std::thread::sleep(Duration::from_millis(10));
-                            retried_count = 0;
-                        }
-                    }
-                    mpsc::TrySendError::Disconnected(_) => {
-                        return Err(Failure::new(format!(
-                            "{next_thread_index}-th thread disconnected"
-                        )));
-                    }
-                }
-            }
-            next_thread_index = (next_thread_index + 1) % input_txs.len();
+            let _ = input_tx.send(input);
         }
         std::mem::drop(output_tx);
-        std::mem::drop(input_txs);
+        std::mem::drop(input_tx);
         let _ = output_thread.join();
 
         Ok(())
@@ -187,12 +164,11 @@ impl StreamCallCommand {
     }
 }
 
-#[derive(Debug)]
 struct ClientRunner {
     stream: JsonlStream<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: mpsc::Receiver<Input>,
+    input_rx: spmc::Receiver<Input>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -321,11 +297,10 @@ pub struct Metadata {
     pub end_time: Duration,
 }
 
-#[derive(Debug)]
 struct ClientDryRunner {
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: mpsc::Receiver<Input>,
+    input_rx: spmc::Receiver<Input>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,

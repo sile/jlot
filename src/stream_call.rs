@@ -134,7 +134,12 @@ impl StreamCallCommand {
             if self.dry_run {
                 streams.push(None);
             } else {
-                let socket = TcpStream::connect(server)
+                let server = if server.starts_with(':') {
+                    format!("127.0.0.1{server}")
+                } else {
+                    server.to_owned()
+                };
+                let socket = TcpStream::connect(&server)
                     .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
                 socket.set_nodelay(true).or_fail()?;
                 streams.push(Some(JsonlStream::new(socket)));

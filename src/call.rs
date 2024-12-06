@@ -17,7 +17,11 @@ pub struct CallCommand {
 }
 
 impl CallCommand {
-    pub fn run(self) -> orfail::Result<()> {
+    pub fn run(mut self) -> orfail::Result<()> {
+        if self.server_addr.starts_with(':') {
+            self.server_addr = format!("127.0.0.1{}", self.server_addr);
+        }
+
         let socket = TcpStream::connect(&self.server_addr)
             .or_fail_with(|e| format!("Failed to connect to '{}': {e}", self.server_addr))?;
         socket.set_nodelay(true).or_fail()?;

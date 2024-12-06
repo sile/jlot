@@ -2,12 +2,15 @@ use std::{
     collections::{HashMap, VecDeque},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
-    sync::mpsc::{self, RecvError},
+    sync::{
+        mpsc::{self, RecvError},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
 use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
-use orfail::{Failure, OrFail};
+use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
 use crate::io;
@@ -43,7 +46,6 @@ pub struct StreamCallCommand {
 impl StreamCallCommand {
     pub fn run(self) -> orfail::Result<()> {
         let streams = self.connect_to_servers().or_fail()?;
-        let mut input_txs = Vec::new();
         let (output_tx, output_rx) = mpsc::channel();
 
         let output_thread = std::thread::spawn(move || {
@@ -55,17 +57,18 @@ impl StreamCallCommand {
         });
 
         let base_time = Instant::now();
+        let (input_tx, input_rx) = mpsc::channel();
+        let input_rx = Arc::new(Mutex::new(input_rx));
         for ((server_addr, stream), pipelining) in
             self.servers().zip(streams).zip(self.pipelinings())
         {
-            let (input_tx, input_rx) = mpsc::sync_channel(pipelining * 2 + 10);
             let output_tx = output_tx.clone();
             if let Some(stream) = stream {
                 let runner = ClientRunner {
                     server_addr: stream.inner().peer_addr().or_fail()?,
                     stream,
                     base_time,
-                    input_rx,
+                    input_rx: input_rx.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -81,7 +84,7 @@ impl StreamCallCommand {
                 let runner = ClientDryRunner {
                     server_addr: server_addr.parse::<SocketAddr>().or_fail()?,
                     base_time,
-                    input_rx,
+                    input_rx: input_rx.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -94,13 +97,11 @@ impl StreamCallCommand {
                         .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
                 });
             }
-            input_txs.push(input_tx);
         }
 
         let stdin = std::io::stdin();
         let mut input_stream = JsonlStream::new(stdin.lock());
 
-        let mut next_thread_index = 0;
         let mut next_id = 0;
 
         let mut inputs = Vec::new();
@@ -122,30 +123,10 @@ impl StreamCallCommand {
                 input.reassign_id(&mut next_id);
             }
 
-            // Send the input.
-            let mut retried_count = 0;
-            while let Err(e) = input_txs[next_thread_index].try_send(input) {
-                match e {
-                    mpsc::TrySendError::Full(v) => {
-                        input = v;
-                        next_thread_index = (next_thread_index + 1) % input_txs.len();
-                        retried_count += 1;
-                        if retried_count == input_txs.len() {
-                            std::thread::sleep(Duration::from_millis(10));
-                            retried_count = 0;
-                        }
-                    }
-                    mpsc::TrySendError::Disconnected(_) => {
-                        return Err(Failure::new(format!(
-                            "{next_thread_index}-th thread disconnected"
-                        )));
-                    }
-                }
-            }
-            next_thread_index = (next_thread_index + 1) % input_txs.len();
+            let _ = input_tx.send(input);
         }
         std::mem::drop(output_tx);
-        std::mem::drop(input_txs);
+        std::mem::drop(input_tx);
         let _ = output_thread.join();
 
         Ok(())
@@ -192,7 +173,7 @@ struct ClientRunner {
     stream: JsonlStream<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: mpsc::Receiver<Input>,
+    input_rx: Arc<Mutex<mpsc::Receiver<Input>>>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -207,7 +188,11 @@ impl ClientRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            match self.input_rx.recv() {
+            let result = {
+                let rx = self.input_rx.lock().or_fail()?;
+                rx.recv()
+            };
+            match result {
                 Ok(input) => {
                     self.send_request(input).or_fail()?;
                 }
@@ -325,7 +310,7 @@ pub struct Metadata {
 struct ClientDryRunner {
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: mpsc::Receiver<Input>,
+    input_rx: Arc<Mutex<mpsc::Receiver<Input>>>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -340,7 +325,11 @@ impl ClientDryRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            match self.input_rx.recv() {
+            let result = {
+                let rx = self.input_rx.lock().or_fail()?;
+                rx.recv()
+            };
+            match result {
                 Ok(input) => {
                     self.send_request(input);
                 }

@@ -2,10 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
-    sync::{
-        mpsc::{self, RecvError},
-        Arc, Mutex,
-    },
+    sync::mpsc::{self, RecvError},
     time::{Duration, Instant},
 };
 
@@ -57,8 +54,7 @@ impl StreamCallCommand {
         });
 
         let base_time = Instant::now();
-        let (input_tx, input_rx) = mpsc::channel();
-        let input_rx = Arc::new(Mutex::new(input_rx));
+        let (mut input_tx, input_rx) = spmc::channel();
         for ((server_addr, stream), pipelining) in
             self.servers().zip(streams).zip(self.pipelinings())
         {
@@ -168,12 +164,11 @@ impl StreamCallCommand {
     }
 }
 
-#[derive(Debug)]
 struct ClientRunner {
     stream: JsonlStream<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: Arc<Mutex<mpsc::Receiver<Input>>>,
+    input_rx: spmc::Receiver<Input>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -188,11 +183,7 @@ impl ClientRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            let result = {
-                let rx = self.input_rx.lock().or_fail()?;
-                rx.recv()
-            };
-            match result {
+            match self.input_rx.recv() {
                 Ok(input) => {
                     self.send_request(input).or_fail()?;
                 }
@@ -306,11 +297,10 @@ pub struct Metadata {
     pub end_time: Duration,
 }
 
-#[derive(Debug)]
 struct ClientDryRunner {
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: Arc<Mutex<mpsc::Receiver<Input>>>,
+    input_rx: spmc::Receiver<Input>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -325,11 +315,7 @@ impl ClientDryRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            let result = {
-                let rx = self.input_rx.lock().or_fail()?;
-                rx.recv()
-            };
-            match result {
+            match self.input_rx.recv() {
                 Ok(input) => {
                     self.send_request(input);
                 }

@@ -11,6 +11,9 @@ pub struct CallCommand {
 
     /// JSON-RPC request object or array of request objects (for batch call).
     request: MaybeBatch<RequestObject>,
+
+    /// Additional JSON-RPC requests.
+    additional_requests: Vec<MaybeBatch<RequestObject>>,
 }
 
 impl CallCommand {
@@ -20,14 +23,16 @@ impl CallCommand {
         socket.set_nodelay(true).or_fail()?;
         let mut client = RpcClient::new(socket);
 
-        let is_notification = self.request.iter().all(|r| r.id.is_none());
-        match is_notification {
-            true => {
-                client.cast(&self.request).or_fail()?;
-            }
-            false => {
-                let response: MaybeBatch<ResponseObject> = client.call(&self.request).or_fail()?;
-                println!("{}", serde_json::to_string(&response).or_fail()?);
+        for request in std::iter::once(self.request).chain(self.additional_requests.into_iter()) {
+            let is_notification = request.iter().all(|r| r.id.is_none());
+            match is_notification {
+                true => {
+                    client.cast(&request).or_fail()?;
+                }
+                false => {
+                    let response: MaybeBatch<ResponseObject> = client.call(&request).or_fail()?;
+                    println!("{}", serde_json::to_string(&response).or_fail()?);
+                }
             }
         }
 

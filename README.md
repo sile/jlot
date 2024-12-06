@@ -68,35 +68,35 @@ $ jlot run-echo-server 127.0.0.1:9000
 
 Execute 1000 RPC calls with pipelining enabled and gather the statistics:
 ```console
-$ jlot req put --id 0 --count 1000 | \
-    jlot stream-call 127.0.0.1:9000 --pipelining 10 --add-metadata | \
+$ jlot req put --id 0 --count 100000 | \
+    jlot stream-call 127.0.0.1:9000 --concurrency 10 --add-metadata --preread | \
     jlot stats | \
     jq .
 {
-  "duration": 0.378478,
+  "duration": 0.608289541,
   "max_concurrency": 10,
   "count": {
-    "calls": 1000,
+    "calls": 100000,
     "batch_calls": 0,
     "missing_metadata_calls": 0,
-    "requests": 1000,
+    "requests": 100000,
     "responses": {
-      "ok": 1000,
+      "ok": 100000,
       "error": 0
     }
   },
-  "rps": 2642.1614994794945,
+  "rps": 164395.39604051816,
   "bps": {
-    "outgoing": 864303.8697097321,
-    "incoming": 1622921.2794402845
+    "outgoing": 56405901.60993743,
+    "incoming": 106235987.37825413
   },
   "latency": {
-    "min": 9.525e-05,
-    "p25": 0.000223541,
-    "p50": 0.0003005,
-    "p75": 0.010511875,
-    "max": 0.012503042,
-    "avg": 0.003430977
+    "min": 0.000016416,
+    "p25": 0.0000435,
+    "p50": 0.000057625,
+    "p75": 0.000074584,
+    "max": 0.000302208,
+    "avg": 0.000060041
   }
 }
 ```

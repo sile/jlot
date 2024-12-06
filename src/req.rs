@@ -13,11 +13,14 @@ pub struct ReqCommand {
     params: Option<RequestParams>,
 
     /// Request ID (number or string).
-    ///
-    /// If not provided, the request is regarded as a notification.
-    #[clap(long)]
-    id: Option<RequestId>,
+    #[clap(long, short, default_value = "0")]
+    id: RequestId,
 
+    /// When set, the "id" field will be excluded from the resulting JSON object.
+    #[clap(short, long)]
+    notification: bool,
+
+    /// Count of requests to generate.
     #[clap(short, long, default_value = "1")]
     count: NonZeroUsize,
 }
@@ -28,7 +31,7 @@ impl ReqCommand {
             jsonrpc: JsonRpcVersion::V2,
             method: self.method,
             params: self.params,
-            id: self.id,
+            id: (!self.notification).then_some(self.id),
         };
 
         let json = serde_json::to_string(&request).or_fail()?;

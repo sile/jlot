@@ -134,11 +134,6 @@ impl StreamCallCommand {
             if self.dry_run {
                 streams.push(None);
             } else {
-                let server = if server.starts_with(':') {
-                    format!("127.0.0.1{server}")
-                } else {
-                    server.to_owned()
-                };
                 let socket = TcpStream::connect(&server)
                     .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
                 socket.set_nodelay(true).or_fail()?;
@@ -148,8 +143,16 @@ impl StreamCallCommand {
         Ok(streams)
     }
 
-    fn servers(&self) -> impl '_ + Iterator<Item = &String> {
-        std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
+    fn servers(&self) -> impl '_ + Iterator<Item = String> {
+        std::iter::once(&self.server_addr)
+            .chain(self.additional_server_addrs.iter())
+            .map(|s| {
+                if s.starts_with(':') {
+                    format!("127.0.0.1{s}")
+                } else {
+                    s.to_owned()
+                }
+            })
     }
 
     fn pipelinings(&self) -> impl Iterator<Item = usize> {

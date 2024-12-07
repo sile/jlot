@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{io, types::ServerAddr};
 
-/// Execute a stream of JSON-RPC calls received from the standard input.
+/// Read JRON-RPC requests from standard input and execute the RPC calls.
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
     /// JSON-RPC server address or hostname.

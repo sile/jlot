@@ -20,7 +20,7 @@ Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP
 Usage: jlot <COMMAND>
 
 Commands:
-  call             Execute a stream of JSON-RPC calls received from the standard input
+  call             Read JRON-RPC requests from standard input and execute the RPC calls
   req              Generate a JSON-RPC request object JSON
   stats            Calculate statistics from JSON objects outputted by executing the command `call --add-metadata ...`
   run-echo-server  Run a JSON-RPC echo server (for development or testing purposes)

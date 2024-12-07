@@ -9,9 +9,9 @@ use crate::{
     io,
 };
 
-/// Calculate statistics from JSON objects outputted by executing the command `stream-call --add-metadata ...`.
+/// Calculate statistics from JSON objects outputted by executing the command `call --add-metadata ...`.
 ///
-/// Note that the output of `stream-call` command does not include notifications,
+/// Note that the output of `call` command does not include notifications,
 /// so the statistics do not take them into account.
 #[derive(Debug, clap::Args)]
 pub struct StatsCommand {

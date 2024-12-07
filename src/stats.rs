@@ -18,6 +18,10 @@ pub struct StatsCommand {
     /// When set, the `count` field is included in the resulting JSON object.
     #[clap(long)]
     pub count: bool,
+
+    /// When set, the `bps` field is included in the resulting JSON object.
+    #[clap(long)]
+    pub bps: bool,
 }
 
 impl StatsCommand {
@@ -27,6 +31,9 @@ impl StatsCommand {
         let mut stats = Stats::default();
         if self.count {
             stats.count = Some(Counter::default());
+        }
+        if self.bps {
+            stats.bps = Some(Bps::default());
         }
         while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
             stats.handle_output(output);
@@ -45,7 +52,8 @@ struct Stats {
     #[serde(skip_serializing_if = "Option::is_none")]
     count: Option<Counter>,
     rps: f64,
-    bps: Bps,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bps: Option<Bps>,
     latency: Latency,
 
     #[serde(skip)]
@@ -79,8 +87,10 @@ impl Stats {
             .as_secs_f64();
 
         if self.duration > 0.0 {
-            self.bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
-            self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
+            if let Some(bps) = &mut self.bps {
+                bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
+                bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
+            }
 
             self.rps = self.rpc_calls as f64 / self.duration;
         }

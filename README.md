@@ -76,10 +76,6 @@ $ jlot req put --count 100000 | \
   "duration": 0.608289541,
   "max_concurrency": 10,
   "rps": 164395.39604051816,
-  "bps": {
-    "outgoing": 56405901.60993743,
-    "incoming": 106235987.37825413
-  },
   "latency": {
     "min": 0.000016416,
     "p25": 0.0000435,

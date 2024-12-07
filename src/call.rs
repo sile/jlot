@@ -53,8 +53,18 @@ impl CallCommand {
             }
         });
 
-        let base_time = Instant::now();
+        let stdin = std::io::stdin();
+        let mut input_stream = JsonlStream::new(stdin.lock());
+        let mut inputs = Vec::new();
+        if self.buffer_input {
+            while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
+                inputs.push(Input::new(request));
+            }
+            inputs.reverse();
+        }
+
         let (mut input_tx, input_rx) = spmc::channel();
+        let base_time = Instant::now();
         for ((server_addr, stream), pipelining) in
             self.servers().zip(streams).zip(self.pipelinings())
         {
@@ -95,19 +105,7 @@ impl CallCommand {
             }
         }
 
-        let stdin = std::io::stdin();
-        let mut input_stream = JsonlStream::new(stdin.lock());
-
         let mut next_id = 0;
-
-        let mut inputs = Vec::new();
-        if self.buffer_input {
-            while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
-                inputs.push(Input::new(request));
-            }
-            inputs.reverse();
-        }
-
         while let Some(mut input) = if self.buffer_input {
             inputs.pop()
         } else {

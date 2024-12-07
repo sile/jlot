@@ -14,13 +14,20 @@ use crate::{
 /// Note that the output of `stream-call` command does not include notifications,
 /// so the statistics do not take them into account.
 #[derive(Debug, clap::Args)]
-pub struct StatsCommand {}
+pub struct StatsCommand {
+    /// When set, the `count` field is included in the resulting JSON object.
+    #[clap(long)]
+    pub count: bool,
+}
 
 impl StatsCommand {
     pub fn run(self) -> orfail::Result<()> {
         let stdin = std::io::stdin();
         let mut stream = JsonlStream::new(stdin.lock());
         let mut stats = Stats::default();
+        if self.count {
+            stats.count = Some(Counter::default());
+        }
         while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
             stats.handle_output(output);
         }
@@ -32,9 +39,11 @@ impl StatsCommand {
 
 #[derive(Debug, Default, Serialize)]
 struct Stats {
+    rpc_calls: usize,
     duration: f64,
     max_concurrency: usize,
-    count: Counter,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<Counter>,
     rps: f64,
     bps: Bps,
     latency: Latency,
@@ -73,7 +82,7 @@ impl Stats {
             self.bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
             self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
 
-            self.rps = self.count.requests as f64 / self.duration;
+            self.rps = self.rpc_calls as f64 / self.duration;
         }
 
         if !self.latencies.is_empty() {
@@ -102,24 +111,29 @@ impl Stats {
     }
 
     fn handle_output(&mut self, output: Output) {
-        self.count.calls += 1;
-        if output.is_batch() {
-            self.count.batch_calls += 1;
-        }
+        self.rpc_calls += 1;
 
-        self.count.requests += output.len();
-        for res in output.iter() {
-            if res.response.to_std_result().is_ok() {
-                self.count.responses.ok += 1;
-            } else {
-                self.count.responses.error += 1;
+        if let Some(counter) = &mut self.count {
+            if output.is_batch() {
+                counter.batch_calls += 1;
+            }
+
+            counter.requests += output.len();
+            for res in output.iter() {
+                if res.response.to_std_result().is_ok() {
+                    counter.responses.ok += 1;
+                } else {
+                    counter.responses.error += 1;
+                }
+            }
+
+            if output.iter().all(|res| res.metadata.is_none()) {
+                counter.missing_metadata_calls += 1;
             }
         }
 
         if let Some(metadata) = output.iter().find_map(|res| res.metadata.as_ref()) {
             self.handle_metadata(metadata, &output);
-        } else {
-            self.count.missing_metadata_calls += 1;
         }
     }
 
@@ -143,7 +157,6 @@ impl Stats {
 
 #[derive(Debug, Default, Serialize)]
 struct Counter {
-    calls: usize,
     batch_calls: usize,
     missing_metadata_calls: usize,
 

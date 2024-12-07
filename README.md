@@ -36,14 +36,14 @@ Examples
 
 ### Basic RPC call
 
-Start an echo server in a terminal:
+Start an echo server in a terminal (":9000" is shorthand for "127.0.0.1:9000"):
 ```console
-$ jlot run-echo-server 127.0.0.1:9000
+$ jlot run-echo-server :9000
 ```
 
 Execute an RPC call in another terminal:
 ```console
-$ jlot req hello '["world"]' --id 2 | jlot call 127.0.0.1:9000 | jq .
+$ jlot req hello '["world"]' --id 2 | jlot call :9000 | jq .
 {
   "jsonrpc": "2.0",
   "result": {
@@ -62,13 +62,13 @@ $ jlot req hello '["world"]' --id 2 | jlot call 127.0.0.1:9000 | jq .
 
 Start an echo server in a terminal:
 ```console
-$ jlot run-echo-server 127.0.0.1:9000
+$ jlot run-echo-server :9000
 ```
 
 Execute 1000 RPC calls with pipelining enabled and gather the statistics:
 ```console
 $ jlot req put --count 100000 | \
-    jlot call 127.0.0.1:9000 --concurrency 10 --add-metadata --buffer-input | \
+    jlot call :9000 --concurrency 10 --add-metadata --buffer-input | \
     jlot stats | \
     jq .
 {

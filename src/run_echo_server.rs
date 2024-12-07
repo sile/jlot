@@ -1,9 +1,11 @@
-use std::net::{SocketAddr, TcpStream};
+use std::net::TcpStream;
 
 use jsonlrpc::{
     ErrorCode, ErrorObject, JsonRpcVersion, JsonlStream, MaybeBatch, RequestObject, ResponseObject,
 };
 use orfail::OrFail;
+
+use crate::types::ServerAddr;
 
 /// Run a JSON-RPC echo server (for development or testing purposes).
 ///
@@ -12,12 +14,12 @@ use orfail::OrFail;
 #[derive(Debug, clap::Args)]
 pub struct RunEchoServerCommand {
     /// Listen address.
-    listen_addr: SocketAddr,
+    listen_addr: ServerAddr,
 }
 
 impl RunEchoServerCommand {
     pub fn run(self) -> orfail::Result<()> {
-        let listener = std::net::TcpListener::bind(self.listen_addr).or_fail()?;
+        let listener = std::net::TcpListener::bind(self.listen_addr.0).or_fail()?;
         for incoming in listener.incoming() {
             let stream = incoming.or_fail()?;
             std::thread::spawn(move || {

@@ -10,16 +10,16 @@ use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject
 use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
-use crate::io;
+use crate::{io, types::ServerAddr};
 
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
     /// JSON-RPC server address or hostname.
-    server_addr: String,
+    server_addr: ServerAddr,
 
     /// Additional JSON-RPC servers to execute the calls in parallel.
-    additional_server_addrs: Vec<String>,
+    additional_server_addrs: Vec<ServerAddr>,
 
     /// Maximum number of concurrent calls.
     #[clap(short, long, default_value = "1")]
@@ -88,7 +88,7 @@ impl CallCommand {
                 });
             } else {
                 let runner = ClientDryRunner {
-                    server_addr: server_addr.parse::<SocketAddr>().or_fail()?,
+                    server_addr: server_addr.0.parse::<SocketAddr>().or_fail()?,
                     base_time,
                     input_rx: input_rx.clone(),
                     output_tx,
@@ -132,8 +132,8 @@ impl CallCommand {
             if self.dry_run {
                 streams.push(None);
             } else {
-                let socket = TcpStream::connect(&server)
-                    .or_fail_with(|e| format!("Failed to connect to '{server}': {e}"))?;
+                let socket = TcpStream::connect(&server.0)
+                    .or_fail_with(|e| format!("Failed to connect to '{}': {e}", server.0))?;
                 socket.set_nodelay(true).or_fail()?;
                 streams.push(Some(JsonlStream::new(socket)));
             }
@@ -141,16 +141,8 @@ impl CallCommand {
         Ok(streams)
     }
 
-    fn servers(&self) -> impl '_ + Iterator<Item = String> {
-        std::iter::once(&self.server_addr)
-            .chain(self.additional_server_addrs.iter())
-            .map(|s| {
-                if s.starts_with(':') {
-                    format!("127.0.0.1{s}")
-                } else {
-                    s.to_owned()
-                }
-            })
+    fn servers(&self) -> impl '_ + Iterator<Item = &ServerAddr> {
+        std::iter::once(&self.server_addr).chain(self.additional_server_addrs.iter())
     }
 
     fn pipelinings(&self) -> impl Iterator<Item = usize> {

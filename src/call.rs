@@ -2,7 +2,10 @@ use std::{
     collections::{HashMap, VecDeque},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
-    sync::mpsc::{self, RecvError},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -12,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{io, types::ServerAddr};
 
-/// Execute a stream of JSON-RPC calls received from the standard input.
+/// Read JRON-RPC requests from standard input and execute the RPC calls.
 #[derive(Debug, clap::Args)]
 pub struct CallCommand {
     /// JSON-RPC server address or hostname.
@@ -28,10 +31,6 @@ pub struct CallCommand {
     /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).
     #[clap(short, long)]
     add_metadata: bool,
-
-    /// Read the entire standard input stream before sending any requests.
-    #[clap(short, long)]
-    buffer_input: bool,
 
     /// Run the command without connecting to or communicating with actual servers.
     ///
@@ -56,14 +55,18 @@ impl CallCommand {
         let stdin = std::io::stdin();
         let mut input_stream = JsonlStream::new(stdin.lock());
         let mut inputs = Vec::new();
-        if self.buffer_input {
-            while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
-                inputs.push(Input::new(request));
+        let mut next_id = 0;
+        while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
+            let mut input = Input::new(request);
+            if self.add_metadata {
+                input.reassign_id(&mut next_id);
             }
-            inputs.reverse();
+            inputs.push(input);
         }
 
-        let (mut input_tx, input_rx) = spmc::channel();
+        let inputs = Arc::new(inputs);
+        let input_index = Arc::new(AtomicUsize::new(0));
+
         let base_time = Instant::now();
         for ((server_addr, stream), pipelining) in
             self.servers().zip(streams).zip(self.pipelinings())
@@ -74,7 +77,8 @@ impl CallCommand {
                     server_addr: stream.inner().peer_addr().or_fail()?,
                     stream,
                     base_time,
-                    input_rx: input_rx.clone(),
+                    inputs: inputs.clone(),
+                    input_index: input_index.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -90,7 +94,8 @@ impl CallCommand {
                 let runner = ClientDryRunner {
                     server_addr: server_addr.0.parse::<SocketAddr>().or_fail()?,
                     base_time,
-                    input_rx: input_rx.clone(),
+                    inputs: inputs.clone(),
+                    input_index: input_index.clone(),
                     output_tx,
                     pipelining,
                     ongoing_calls: 0,
@@ -105,22 +110,7 @@ impl CallCommand {
             }
         }
 
-        let mut next_id = 0;
-        while let Some(mut input) = if self.buffer_input {
-            inputs.pop()
-        } else {
-            io::maybe_eos(input_stream.read_value())
-                .or_fail()?
-                .map(Input::new)
-        } {
-            if self.add_metadata {
-                input.reassign_id(&mut next_id);
-            }
-
-            let _ = input_tx.send(input);
-        }
         std::mem::drop(output_tx);
-        std::mem::drop(input_tx);
         let _ = output_thread.join();
 
         Ok(())
@@ -166,7 +156,8 @@ struct ClientRunner {
     stream: JsonlStream<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: spmc::Receiver<Input>,
+    inputs: Arc<Vec<Input>>,
+    input_index: Arc<AtomicUsize>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -181,19 +172,15 @@ impl ClientRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            match self.input_rx.recv() {
-                Ok(input) => {
-                    self.send_request(input).or_fail()?;
-                }
-                Err(RecvError) => {
-                    if self.ongoing_calls == 0 {
-                        return Ok(false);
-                    }
-                    break;
-                }
+            let i = self.input_index.fetch_add(1, Ordering::SeqCst);
+            if i < self.inputs.len() {
+                self.send_request(self.inputs[i].clone()).or_fail()?;
+            } else if self.ongoing_calls == 0 {
+                return Ok(false);
+            } else {
+                break;
             }
         }
-
         self.recv_response().or_fail()?;
         Ok(true)
     }
@@ -244,7 +231,7 @@ impl ClientRunner {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Input {
     request: MaybeBatch<RequestObject>,
     is_notification: bool,
@@ -298,7 +285,8 @@ pub struct Metadata {
 struct ClientDryRunner {
     server_addr: SocketAddr,
     base_time: Instant,
-    input_rx: spmc::Receiver<Input>,
+    inputs: Arc<Vec<Input>>,
+    input_index: Arc<AtomicUsize>,
     output_tx: mpsc::Sender<Output>,
     pipelining: usize,
     ongoing_calls: usize,
@@ -313,19 +301,15 @@ impl ClientDryRunner {
 
     fn run_one(&mut self) -> orfail::Result<bool> {
         while self.ongoing_calls < self.pipelining {
-            match self.input_rx.recv() {
-                Ok(input) => {
-                    self.send_request(input);
-                }
-                Err(RecvError) => {
-                    if self.ongoing_calls == 0 {
-                        return Ok(false);
-                    }
-                    break;
-                }
+            let i = self.input_index.fetch_add(1, Ordering::SeqCst);
+            if i < self.inputs.len() {
+                self.send_request(self.inputs[i].clone());
+            } else if self.ongoing_calls == 0 {
+                return Ok(false);
+            } else {
+                break;
             }
         }
-
         self.recv_response().or_fail()?;
         Ok(true)
     }

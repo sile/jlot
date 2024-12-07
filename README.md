@@ -72,23 +72,10 @@ $ jlot req put --count 100000 | \
     jlot stats | \
     jq .
 {
+  "rpc_calls": 100000,
   "duration": 0.608289541,
   "max_concurrency": 10,
-  "count": {
-    "calls": 100000,
-    "batch_calls": 0,
-    "missing_metadata_calls": 0,
-    "requests": 100000,
-    "responses": {
-      "ok": 100000,
-      "error": 0
-    }
-  },
   "rps": 164395.39604051816,
-  "bps": {
-    "outgoing": 56405901.60993743,
-    "incoming": 106235987.37825413
-  },
   "latency": {
     "min": 0.000016416,
     "p25": 0.0000435,

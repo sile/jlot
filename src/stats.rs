@@ -5,8 +5,8 @@ use orfail::OrFail;
 use serde::Serialize;
 
 use crate::{
+    call::{Metadata, Output},
     io,
-    stream_call::{Metadata, Output},
 };
 
 /// Calculate statistics from JSON objects outputted by executing the command `stream-call --add-metadata ...`.

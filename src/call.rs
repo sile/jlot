@@ -14,7 +14,7 @@ use crate::io;
 
 /// Execute a stream of JSON-RPC calls received from the standard input.
 #[derive(Debug, clap::Args)]
-pub struct StreamCallCommand {
+pub struct CallCommand {
     /// JSON-RPC server address or hostname.
     server_addr: String,
 
@@ -40,7 +40,7 @@ pub struct StreamCallCommand {
     dry_run: bool,
 }
 
-impl StreamCallCommand {
+impl CallCommand {
     pub fn run(self) -> orfail::Result<()> {
         let streams = self.connect_to_servers().or_fail()?;
         let (output_tx, output_rx) = mpsc::channel();

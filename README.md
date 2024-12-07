@@ -20,8 +20,7 @@ Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP
 Usage: jlot <COMMAND>
 
 Commands:
-  call             Execute a JSON-RPC call
-  stream-call      Execute a stream of JSON-RPC calls received from the standard input
+  call             Execute a stream of JSON-RPC calls received from the standard input
   req              Generate a JSON-RPC request object JSON
   stats            Calculate statistics from JSON objects outputted by executing the command `stream-call --add-metadata ...`
   run-echo-server  Run a JSON-RPC echo server (for development or testing purposes)
@@ -44,7 +43,7 @@ $ jlot run-echo-server 127.0.0.1:9000
 
 Execute an RPC call in another terminal:
 ```console
-$ jlot call 127.0.0.1:9000 $(jlot req hello '["world"]' --id 2) | jq .
+$ jlot req hello '["world"]' --id 2 | jlot call 127.0.0.1:9000 | jq .
 {
   "jsonrpc": "2.0",
   "result": {
@@ -69,7 +68,7 @@ $ jlot run-echo-server 127.0.0.1:9000
 Execute 1000 RPC calls with pipelining enabled and gather the statistics:
 ```console
 $ jlot req put --id 0 --count 100000 | \
-    jlot stream-call 127.0.0.1:9000 --concurrency 10 --add-metadata --preread | \
+    jlot call 127.0.0.1:9000 --concurrency 10 --add-metadata --buffer-input | \
     jlot stats | \
     jq .
 {

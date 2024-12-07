@@ -68,7 +68,7 @@ $ jlot run-echo-server :9000
 Execute 1000 RPC calls with pipelining enabled and gather the statistics:
 ```console
 $ jlot req put --count 100000 | \
-    jlot call :9000 --concurrency 10 --add-metadata --buffer-input | \
+    jlot call :9000 --concurrency 10 --add-metadata | \
     jlot stats | \
     jq .
 {

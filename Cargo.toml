@@ -15,4 +15,3 @@ jsonlrpc = "0.2.0"
 orfail = "1.1.0"
 serde = { version = "1.0.209", features = ["derive"] }
 serde_json = "1.0.127"
-spmc = "0.3.0"

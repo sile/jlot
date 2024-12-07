@@ -30,8 +30,8 @@ pub struct StreamCallCommand {
     add_metadata: bool,
 
     /// Read the entire standard input stream before sending any requests.
-    #[clap(long)]
-    preread: bool,
+    #[clap(short, long)]
+    buffer_input: bool,
 
     /// Run the command without connecting to or communicating with actual servers.
     ///
@@ -101,14 +101,14 @@ impl StreamCallCommand {
         let mut next_id = 0;
 
         let mut inputs = Vec::new();
-        if self.preread {
+        if self.buffer_input {
             while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
                 inputs.push(Input::new(request));
             }
             inputs.reverse();
         }
 
-        while let Some(mut input) = if self.preread {
+        while let Some(mut input) = if self.buffer_input {
             inputs.pop()
         } else {
             io::maybe_eos(input_stream.read_value())

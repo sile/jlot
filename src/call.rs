@@ -53,10 +53,13 @@ impl CallCommand {
         });
 
         let stdin = std::io::stdin();
-        let mut input_stream = JsonlStream::new(stdin.lock());
+        let input_stream = serde_json::Deserializer::from_reader(stdin.lock());
         let mut inputs = Vec::new();
         let mut next_id = 0;
-        while let Some(request) = io::maybe_eos(input_stream.read_value()).or_fail()? {
+        for request in input_stream.into_iter() {
+            let Some(request) = io::maybe_eos(request).or_fail()? else {
+                break;
+            };
             let mut input = Input::new(request);
             if self.add_metadata {
                 input.reassign_id(&mut next_id);

@@ -1,7 +1,7 @@
 [package]
 name = "jlot"
 version = "0.4.2"
-edition = "2021"
+edition = "2024"
 authors = ["Takeru Ohta <phjgt308@gmail.com>"]
 license = "MIT"
 description = "Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP"

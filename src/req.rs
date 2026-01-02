@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use jsonlrpc::{JsonRpcVersion, RequestId, RequestObject, RequestParams};
 use orfail::OrFail;
 
-pub fn run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
+pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("req")
         .doc("Generate a JSON-RPC request object JSON")
         .take(args)
@@ -14,6 +14,7 @@ pub fn run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 
     let method: String = noargs::arg("<METHOD>")
         .doc("Method name")
+        .example("GetFoo")
         .take(args)
         .then(|a| a.value().parse())?;
     let params: Option<RequestParams> = noargs::arg("[PARAMS]")
@@ -25,7 +26,8 @@ pub fn run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         })?;
     let id: RequestId = noargs::opt("id")
         .short('i')
-        .doc("Request ID (number or string)")
+        .ty("INTEGER | STRING")
+        .doc("Request ID")
         .default("0")
         .take(args)
         .then(|o| -> Result<RequestId, std::convert::Infallible> {
@@ -41,6 +43,7 @@ pub fn run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .is_present();
     let count: NonZeroUsize = noargs::opt("count")
         .short('c')
+        .ty("INTEGER")
         .doc("Count of requests to generate")
         .default("1")
         .take(args)

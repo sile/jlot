@@ -25,6 +25,8 @@ fn main() -> noargs::Result<()> {
     }
     noargs::HELP_FLAG.take_help(&mut args);
 
+    if jlot::req::try_run(&mut args)? {}
+
     if let Some(help) = args.finish()? {
         print!("{}", help);
         return Ok(());

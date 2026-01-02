@@ -3,8 +3,9 @@ use std::{
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
     sync::{
+        Arc,
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc,
+        mpsc,
     },
     time::{Duration, Instant},
 };

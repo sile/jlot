@@ -1,19 +1,3 @@
-/*
-use jlot::{
-    call::CallCommand, req::ReqCommand, run_echo_server::RunEchoServerCommand, stats::StatsCommand,
-};
-
-/// Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP.
-#[derive(Parser)]
-#[clap(version)]
-enum Args {
-    Call(CallCommand),
-    Req(ReqCommand),
-    Stats(StatsCommand),
-    RunEchoServer(RunEchoServerCommand),
-}
-*/
-
 fn main() -> noargs::Result<()> {
     let mut args = noargs::raw_args();
     args.metadata_mut().app_name = env!("CARGO_PKG_NAME");
@@ -25,22 +9,14 @@ fn main() -> noargs::Result<()> {
     }
     noargs::HELP_FLAG.take_help(&mut args);
 
-    if jlot::req::try_run(&mut args)? {}
+    if jlot::req::try_run(&mut args)? {
+    } else if jlot::run_echo_server::try_run(&mut args)? {
+    }
 
     if let Some(help) = args.finish()? {
-        print!("{}", help);
+        print!("{help}");
         return Ok(());
     }
 
     Ok(())
-    /*
-        let args = Args::parse();
-        match args {
-            Args::Call(c) => c.run().or_fail()?,
-            Args::Req(c) => c.run().or_fail()?,
-            Args::Stats(c) => c.run().or_fail()?,
-            Args::RunEchoServer(c) => c.run().or_fail()?,
-        }
-        Ok(())
-    */
 }

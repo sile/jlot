@@ -9,39 +9,54 @@ use crate::{
     io,
 };
 
-/// Calculate statistics from JSON objects outputted by executing the command `call --add-metadata ...`.
-///
-/// Note that the output of `call` command does not include notifications,
-/// so the statistics do not take them into account.
-#[derive(Debug, clap::Args)]
-pub struct StatsCommand {
-    /// When set, the `count` field is included in the resulting JSON object.
-    #[clap(long)]
-    pub count: bool,
+pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
+    if !noargs::cmd("stats")
+        .doc(concat!(
+            "Calculate statistics from JSON objects outputted ",
+            "by executing the command `call --add-metadata ...`\n",
+            "\n",
+            "Note that the output of `call` command does not include notifications,\n",
+            "so the statistics do not take them into account."
+        ))
+        .take(args)
+        .is_present()
+    {
+        return Ok(false);
+    }
 
-    /// When set, the `bps` field is included in the resulting JSON object.
-    #[clap(long)]
-    pub bps: bool,
+    let count: bool = noargs::flag("count")
+        .doc("Include the `count` field in the resulting JSON object")
+        .take(args)
+        .is_present();
+    let bps: bool = noargs::flag("bps")
+        .doc("Include the `bps` field in the resulting JSON object")
+        .take(args)
+        .is_present();
+
+    if args.metadata().help_mode {
+        return Ok(false);
+    }
+
+    run_stats(count, bps)?;
+    Ok(true)
 }
 
-impl StatsCommand {
-    pub fn run(self) -> orfail::Result<()> {
-        let stdin = std::io::stdin();
-        let mut stream = JsonlStream::new(stdin.lock());
-        let mut stats = Stats::default();
-        if self.count {
-            stats.count = Some(Counter::default());
-        }
-        if self.bps {
-            stats.bps = Some(Bps::default());
-        }
-        while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
-            stats.handle_output(output);
-        }
-        stats.finalize();
-        println!("{}", serde_json::to_string(&stats).or_fail()?);
-        Ok(())
+fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
+    let stdin = std::io::stdin();
+    let mut stream = JsonlStream::new(stdin.lock());
+    let mut stats = Stats::default();
+    if count {
+        stats.count = Some(Counter::default());
     }
+    if bps {
+        stats.bps = Some(Bps::default());
+    }
+    while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
+        stats.handle_output(output);
+    }
+    stats.finalize();
+    println!("{}", serde_json::to_string(&stats).or_fail()?);
+    Ok(())
 }
 
 #[derive(Debug, Default, Serialize)]

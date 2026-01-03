@@ -9,9 +9,7 @@ fn main() -> noargs::Result<()> {
     }
     noargs::HELP_FLAG.take_help(&mut args);
 
-    if jlot::req::try_run(&mut args)? {
-    } else if jlot::run_echo_server::try_run(&mut args)? {
-    }
+    let _ = jlot::req::try_run(&mut args)? || jlot::run_echo_server::try_run(&mut args)?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");

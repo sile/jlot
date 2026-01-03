@@ -66,6 +66,10 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                     f.member(
                         "error",
                         nojson::object(|f| {
+                            // NOTE: For simplicity, we return a fixed error code (-32600) without an id field.
+                            // In a production implementation, this should handle errors more granularly:
+                            // - Parse errors should return -32700 without an id
+                            // - Invalid requests should return -32600 with the id if present
                             f.member("code", -32600)?; // invalid-request code
                             f.member("message", e.to_string())
                         }),

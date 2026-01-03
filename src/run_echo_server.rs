@@ -1,8 +1,6 @@
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
 
-use jsonlrpc::{
-    ErrorCode, ErrorObject, JsonRpcVersion, JsonlStream, MaybeBatch, RequestObject, ResponseObject,
-};
 use orfail::OrFail;
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
@@ -45,50 +43,99 @@ fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
 }
 
 fn handle_client(stream: TcpStream) -> orfail::Result<()> {
-    let mut stream = JsonlStream::new(stream);
-    loop {
-        let response = match stream.read_value::<MaybeBatch<RequestObject>>() {
-            Ok(MaybeBatch::Single(request)) => echo_response(request).map(MaybeBatch::Single),
-            Ok(MaybeBatch::Batch(requests)) => {
-                let responses = requests
-                    .into_iter()
-                    .filter_map(echo_response)
-                    .collect::<Vec<_>>();
-                if responses.is_empty() {
-                    None
-                } else {
-                    Some(MaybeBatch::Batch(responses))
-                }
-            }
-            Err(e) if e.is_io() => {
-                break;
-            }
-            Err(e) => Some(MaybeBatch::Single(ResponseObject::Err {
-                jsonrpc: JsonRpcVersion::V2,
-                id: None,
-                error: ErrorObject {
-                    code: ErrorCode::guess(&e),
-                    message: format!(
-                        "[{} ERROR] {e}",
-                        format!("{:?}", e.classify()).to_uppercase()
-                    ),
-                    data: None,
-                },
-            })),
-        };
-
-        if let Some(response) = response {
-            stream.write_value(&response).or_fail()?;
-        }
+    let reader = BufReader::new(stream.try_clone().or_fail()?);
+    let mut writer = BufWriter::new(stream);
+    for line in reader.lines() {
+        let line = line.or_fail()?;
+        nojson::RawJson::parse(&line)
+            .and_then(|json| {
+                let json_value = json.value();
+                let Some(request_id) = parse_request(json_value)? else {
+                    return Ok(Ok(()));
+                };
+                let response = nojson::object(|f| {
+                    f.member("jsonrpc", "2.0")?;
+                    f.member("id", request_id)?;
+                    f.member("result", json_value)
+                });
+                Ok(writeln!(writer, "{response}"))
+            })
+            .unwrap_or_else(|e| {
+                let response = nojson::object(|f| {
+                    f.member("jsonrpc", "2.0")?;
+                    f.member(
+                        "error",
+                        nojson::object(|f| {
+                            // NOTE: For simplicity, we return a fixed error code (-32600) without an id field.
+                            // In a production implementation, this should handle errors more granularly:
+                            // - Parse errors should return -32700 without an id
+                            // - Invalid requests should return -32600 with the id if present
+                            f.member("code", -32600)?; // invalid-request code
+                            f.member("message", e.to_string())
+                        }),
+                    )
+                });
+                writeln!(writer, "{response}")
+            })
+            .or_fail()?;
+        writer.flush().or_fail()?;
     }
-
     Ok(())
 }
 
-fn echo_response(request: RequestObject) -> Option<ResponseObject> {
-    request.id.clone().map(|id| ResponseObject::Ok {
-        jsonrpc: JsonRpcVersion::V2,
-        id,
-        result: serde_json::to_value(&request).expect("unreachable"),
-    })
+fn parse_request<'text, 'raw>(
+    value: nojson::RawJsonValue<'text, 'raw>,
+) -> Result<Option<nojson::RawJsonValue<'text, 'raw>>, nojson::JsonParseError> {
+    if value.kind() == nojson::JsonValueKind::Array {
+        return Err(value.invalid("batch requests are not supported"));
+    }
+
+    let mut has_jsonrpc = false;
+    let mut has_method = false;
+    let mut id = None;
+    for (name, value) in value.to_object()? {
+        match name.to_unquoted_string_str()?.as_ref() {
+            "jsonrpc" => {
+                if value.to_unquoted_string_str()? != "2.0" {
+                    return Err(value.invalid("jsonrpc version must be '2.0'"));
+                }
+                has_jsonrpc = true;
+            }
+            "id" => {
+                if !matches!(
+                    value.kind(),
+                    nojson::JsonValueKind::Integer | nojson::JsonValueKind::String
+                ) {
+                    return Err(value.invalid("id must be an integer or string"));
+                }
+                id = Some(value);
+            }
+            "method" => {
+                if value.kind() != nojson::JsonValueKind::String {
+                    return Err(value.invalid("method must be a string"));
+                }
+                has_method = true;
+            }
+            "params" => {
+                if !matches!(
+                    value.kind(),
+                    nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
+                ) {
+                    return Err(value.invalid("params must be an object or array"));
+                }
+            }
+            _ => {
+                // Ignore unknown members
+            }
+        }
+    }
+
+    if !has_jsonrpc {
+        return Err(value.invalid("jsonrpc field is required"));
+    }
+    if !has_method {
+        return Err(value.invalid("method field is required"));
+    }
+
+    Ok(id)
 }

@@ -16,32 +16,95 @@ use serde::{Deserialize, Serialize};
 
 use crate::{io, types::ServerAddr};
 
-/// Read JRON-RPC requests from standard input and execute the RPC calls.
-#[derive(Debug, clap::Args)]
-pub struct CallCommand {
-    /// JSON-RPC server address or hostname.
+pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
+    if !noargs::cmd("call")
+        .doc("Read JSON-RPC requests from standard input and execute the RPC calls")
+        .take(args)
+        .is_present()
+    {
+        return Ok(false);
+    }
+
+    let server_addr: ServerAddr = noargs::arg("<SERVER>")
+        .doc("JSON-RPC server address or hostname")
+        .example("127.0.0.1:8080")
+        .take(args)
+        .then(|a| a.value().parse())?;
+    let additional_server_addrs: Vec<ServerAddr> = {
+        let mut addrs = Vec::new();
+        loop {
+            let result = noargs::arg("[SERVER]...")
+                .doc("Additional JSON-RPC servers to execute calls in parallel")
+                .take(args)
+                .present_and_then(|a| a.value().parse())?;
+
+            match result {
+                Some(addr) => addrs.push(addr),
+                None => break,
+            }
+        }
+        addrs
+    };
+    let concurrency: NonZeroUsize = noargs::opt("concurrency")
+        .short('c')
+        .ty("NUMBER")
+        .doc("Maximum number of concurrent calls")
+        .default("1")
+        .take(args)
+        .then(|o| o.value().parse())?;
+    let add_metadata: bool = noargs::flag("add-metadata")
+        .short('m')
+        .doc("Add metadata to each response object (note that the ID of each request will be reassigned to be unique)")
+        .take(args)
+        .is_present();
+    let dry_run: bool = noargs::flag("dry-run")
+        .doc("Run the command without connecting to or communicating with actual servers")
+        .doc("All RPC responses will be set to `null`")
+        .take(args)
+        .is_present();
+
+    if args.metadata().help_mode {
+        return Ok(false);
+    }
+
+    run_call(
+        server_addr,
+        additional_server_addrs,
+        concurrency,
+        add_metadata,
+        dry_run,
+    )?;
+
+    Ok(true)
+}
+
+fn run_call(
     server_addr: ServerAddr,
-
-    /// Additional JSON-RPC servers to execute the calls in parallel.
     additional_server_addrs: Vec<ServerAddr>,
-
-    /// Maximum number of concurrent calls.
-    #[clap(short, long, default_value = "1")]
     concurrency: NonZeroUsize,
-
-    /// Add metadata to each response object (note that the ID of each request will be reassigned to be unique).
-    #[clap(short, long)]
     add_metadata: bool,
+    dry_run: bool,
+) -> orfail::Result<()> {
+    let call_command = CallCommand {
+        server_addr,
+        additional_server_addrs,
+        concurrency,
+        add_metadata,
+        dry_run,
+    };
+    call_command.run()
+}
 
-    /// Run the command without connecting to or communicating with actual servers.
-    ///
-    /// All RPC responses will be set to `null`.
-    #[clap(long)]
+struct CallCommand {
+    server_addr: ServerAddr,
+    additional_server_addrs: Vec<ServerAddr>,
+    concurrency: NonZeroUsize,
+    add_metadata: bool,
     dry_run: bool,
 }
 
 impl CallCommand {
-    pub fn run(self) -> orfail::Result<()> {
+    fn run(self) -> orfail::Result<()> {
         let streams = self.connect_to_servers().or_fail()?;
         let (output_tx, output_rx) = mpsc::channel();
 

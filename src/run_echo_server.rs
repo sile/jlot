@@ -66,7 +66,7 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                     f.member(
                         "error",
                         nojson::object(|f| {
-                            f.member("code", 1)?;
+                            f.member("code", -32600)?; // invalid-request code
                             f.member("message", e.to_string())
                         }),
                     )

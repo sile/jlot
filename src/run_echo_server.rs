@@ -1,9 +1,6 @@
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
 
-use jsonlrpc::{
-    ErrorCode, ErrorObject, JsonRpcVersion, JsonlStream, RequestObject, ResponseObject,
-};
 use orfail::OrFail;
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
@@ -45,7 +42,7 @@ fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
     Ok(())
 }
 
-fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
+fn handle_client(stream: TcpStream) -> orfail::Result<()> {
     let reader = BufReader::new(stream.try_clone().or_fail()?);
     let mut writer = BufWriter::new(stream);
     for line in reader.lines() {
@@ -137,42 +134,4 @@ fn parse_request<'text, 'raw>(
     }
 
     Ok(id)
-}
-
-fn handle_client(stream: TcpStream) -> orfail::Result<()> {
-    let mut stream = JsonlStream::new(stream);
-    loop {
-        let response = match stream.read_value::<RequestObject>() {
-            Ok(request) => echo_response(request),
-            Err(e) if e.is_io() => {
-                break;
-            }
-            Err(e) => Some(ResponseObject::Err {
-                jsonrpc: JsonRpcVersion::V2,
-                id: None,
-                error: ErrorObject {
-                    code: ErrorCode::guess(&e),
-                    message: format!(
-                        "[{} ERROR] {e}",
-                        format!("{:?}", e.classify()).to_uppercase()
-                    ),
-                    data: None,
-                },
-            }),
-        };
-
-        if let Some(response) = response {
-            stream.write_value(&response).or_fail()?;
-        }
-    }
-
-    Ok(())
-}
-
-fn echo_response(request: RequestObject) -> Option<ResponseObject> {
-    request.id.clone().map(|id| ResponseObject::Ok {
-        jsonrpc: JsonRpcVersion::V2,
-        id,
-        result: serde_json::to_value(&request).expect("unreachable"),
-    })
 }

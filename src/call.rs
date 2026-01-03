@@ -58,8 +58,11 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .take(args)
         .is_present();
     let dry_run: bool = noargs::flag("dry-run")
-        .doc("Run the command without connecting to or communicating with actual servers")
-        .doc("All RPC responses will be set to `null`")
+        .doc(concat!(
+            "Run the command without connecting to or communicating with actual servers\n",
+            "\n",
+            "All RPC responses will be set to `null`"
+        ))
         .take(args)
         .is_present();
 

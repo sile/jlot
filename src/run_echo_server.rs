@@ -49,8 +49,50 @@ fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let line = line.or_fail()?;
-        nojson::RawJson::parse(&line).or_fail()?;
+        let json = nojson::RawJson::parse(&line).or_fail()?;
+        let req = parse_request(json.value()).or_fail()?;
     }
+    Ok(())
+}
+
+fn parse_request<'text, 'raw>(
+    value: nojson::RawJsonValue<'text, 'raw>,
+) -> Result<(), nojson::JsonParseError> {
+    if value.kind() == nojson::JsonValueKind::Array {
+        return Err(value.invalid("todo"));
+    }
+
+    let mut is_jsonrpc = false;
+    let mut id = None;
+    for (name, value) in value.to_object()? {
+        match name.to_unquoted_string_str()?.as_ref() {
+            "jsonrpc" => {
+                if value.to_unquoted_string_str()? != "2.0" {
+                    return Err(value.invalid("todo"));
+                }
+                is_jsonrpc = true;
+            }
+            "id" => {
+                if !matches!(
+                    value.kind(),
+                    nojson::JsonValueKind::Integer | nojson::JsonValueKind::String
+                ) {
+                    return Err(value.invalid("todo"));
+                }
+                id = Some(value);
+            }
+            "method" => todo!(),
+            "params" => todo!(),
+            _ => {
+                // Ignore unknown members
+            }
+        }
+    }
+
+    if !is_jsonrpc {
+        return Err(value.invalid("todo"));
+    }
+
     Ok(())
 }
 

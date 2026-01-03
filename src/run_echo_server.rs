@@ -1,7 +1,7 @@
 use std::net::TcpStream;
 
 use jsonlrpc::{
-    ErrorCode, ErrorObject, JsonRpcVersion, JsonlStream, MaybeBatch, RequestObject, ResponseObject,
+    ErrorCode, ErrorObject, JsonRpcVersion, JsonlStream, RequestObject, ResponseObject,
 };
 use orfail::OrFail;
 
@@ -47,23 +47,12 @@ fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
 fn handle_client(stream: TcpStream) -> orfail::Result<()> {
     let mut stream = JsonlStream::new(stream);
     loop {
-        let response = match stream.read_value::<MaybeBatch<RequestObject>>() {
-            Ok(MaybeBatch::Single(request)) => echo_response(request).map(MaybeBatch::Single),
-            Ok(MaybeBatch::Batch(requests)) => {
-                let responses = requests
-                    .into_iter()
-                    .filter_map(echo_response)
-                    .collect::<Vec<_>>();
-                if responses.is_empty() {
-                    None
-                } else {
-                    Some(MaybeBatch::Batch(responses))
-                }
-            }
+        let response = match stream.read_value::<RequestObject>() {
+            Ok(request) => echo_response(request),
             Err(e) if e.is_io() => {
                 break;
             }
-            Err(e) => Some(MaybeBatch::Single(ResponseObject::Err {
+            Err(e) => Some(ResponseObject::Err {
                 jsonrpc: JsonRpcVersion::V2,
                 id: None,
                 error: ErrorObject {
@@ -74,7 +63,7 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                     ),
                     data: None,
                 },
-            })),
+            }),
         };
 
         if let Some(response) = response {

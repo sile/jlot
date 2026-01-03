@@ -28,7 +28,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .doc("Include the `count` field in the resulting JSON object")
         .take(args)
         .is_present();
-
     let bps: bool = noargs::flag("bps")
         .doc("Include the `bps` field in the resulting JSON object")
         .take(args)

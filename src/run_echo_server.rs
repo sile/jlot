@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, BufWriter,Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
 
 use jsonlrpc::{
@@ -50,18 +50,34 @@ fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
     let mut writer = BufWriter::new(stream);
     for line in reader.lines() {
         let line = line.or_fail()?;
-        let json = nojson::RawJson::parse(&line).or_fail()?;
-        let json_value = json.value();
-        let request_id = parse_request(json_value).or_fail()?;
-
-        let response = nojson::object(|f| {
-            f.member("jsonrpc", "2.0")?;
-            if let Some(id) = request_id {
-                f.member("id", id)?;
-            }
-            f.member("result", json_value)
-        });
-        writeln!(writer, "{response}").or_fail()?;
+        nojson::RawJson::parse(&line)
+            .and_then(|json| {
+                let json_value = json.value();
+                let request_id = parse_request(json_value)?;
+                let response = nojson::object(|f| {
+                    f.member("jsonrpc", "2.0")?;
+                    if let Some(id) = request_id {
+                        f.member("id", id)?;
+                    }
+                    f.member("result", json_value)
+                });
+                Ok(writeln!(writer, "{response}"))
+            })
+            .unwrap_or_else(|e| {
+                let response = nojson::object(|f| {
+                    f.member("jsonrpc", "2.0")?;
+                    f.member(
+                        "error",
+                        nojson::object(|f| {
+                            f.member("code", 1)?;
+                            f.member("message", e.to_string())
+                        }),
+                    )
+                });
+                writeln!(writer, "{response}")
+            })
+            .or_fail()?;
+        writer.flush().or_fail()?;
     }
     Ok(())
 }

@@ -50,19 +50,20 @@ fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
     for line in reader.lines() {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;
-        let req = parse_request(json.value()).or_fail()?;
+        let request_id = parse_request(json.value()).or_fail()?;
     }
     Ok(())
 }
 
 fn parse_request<'text, 'raw>(
     value: nojson::RawJsonValue<'text, 'raw>,
-) -> Result<(), nojson::JsonParseError> {
+) -> Result<Option<nojson::RawJsonValue<'text, 'raw>>, nojson::JsonParseError> {
     if value.kind() == nojson::JsonValueKind::Array {
-        return Err(value.invalid("todo"));
+        return Err(value.invalid("todo")); // Batch requests are not supported
     }
 
-    let mut is_jsonrpc = false;
+    let mut has_jsonrpc = false;
+    let mut has_method = false;
     let mut id = None;
     for (name, value) in value.to_object()? {
         match name.to_unquoted_string_str()?.as_ref() {
@@ -70,7 +71,7 @@ fn parse_request<'text, 'raw>(
                 if value.to_unquoted_string_str()? != "2.0" {
                     return Err(value.invalid("todo"));
                 }
-                is_jsonrpc = true;
+                has_jsonrpc = true;
             }
             "id" => {
                 if !matches!(
@@ -81,19 +82,34 @@ fn parse_request<'text, 'raw>(
                 }
                 id = Some(value);
             }
-            "method" => todo!(),
-            "params" => todo!(),
+            "method" => {
+                if value.kind() != nojson::JsonValueKind::String {
+                    return Err(value.invalid("todo"));
+                }
+                has_method = true;
+            }
+            "params" => {
+                if !matches!(
+                    value.kind(),
+                    nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
+                ) {
+                    return Err(value.invalid("todo"));
+                }
+            }
             _ => {
                 // Ignore unknown members
             }
         }
     }
 
-    if !is_jsonrpc {
+    if !has_jsonrpc {
+        return Err(value.invalid("todo"));
+    }
+    if !has_method {
         return Err(value.invalid("todo"));
     }
 
-    Ok(())
+    Ok(id)
 }
 
 fn handle_client(stream: TcpStream) -> orfail::Result<()> {

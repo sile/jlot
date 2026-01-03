@@ -12,18 +12,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let method: String = noargs::arg("<METHOD>")
-        .doc("Method name")
-        .example("GetFoo")
-        .take(args)
-        .then(|a| a.value().parse())?;
-    let params: Option<RequestParams> = noargs::arg("[PARAMS]")
-        .doc("Request parameters (JSON array or JSON object)")
-        .take(args)
-        .present_and_then(|a| {
-            let json_str = a.value();
-            serde_json::from_str(json_str).map_err(|e| format!("invalid JSON: {}", e))
-        })?;
     let id: RequestId = noargs::opt("id")
         .short('i')
         .ty("INTEGER | STRING")
@@ -48,6 +36,18 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .default("1")
         .take(args)
         .then(|o| o.value().parse())?;
+    let method: String = noargs::arg("<METHOD>")
+        .doc("Method name")
+        .example("GetFoo")
+        .take(args)
+        .then(|a| a.value().parse())?;
+    let params: Option<RequestParams> = noargs::arg("[PARAMS]")
+        .doc("Request parameters (JSON array or JSON object)")
+        .take(args)
+        .present_and_then(|a| {
+            let json_str = a.value();
+            serde_json::from_str(json_str).map_err(|e| format!("invalid JSON: {}", e))
+        })?;
 
     if args.metadata().help_mode {
         return Ok(false);

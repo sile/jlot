@@ -1,3 +1,4 @@
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 
 use jsonlrpc::{
@@ -40,6 +41,15 @@ fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
         std::thread::spawn(move || {
             let _ = handle_client(stream);
         });
+    }
+    Ok(())
+}
+
+fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
+    let reader = BufReader::new(stream);
+    for line in reader.lines() {
+        let line = line.or_fail()?;
+        nojson::RawJson::parse(&line).or_fail()?;
     }
     Ok(())
 }

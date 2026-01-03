@@ -12,6 +12,7 @@ readme = "README.md"
 [dependencies]
 jsonlrpc = "0.2.0"
 noargs = "0.4.1"
+nojson = "0.3.6"
 orfail = "1.1.0"
 serde = { version = "1.0.209", features = ["derive"] }
 serde_json = "1.0.127"

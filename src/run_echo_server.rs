@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter,Write};
 use std::net::TcpStream;
 
 use jsonlrpc::{
@@ -46,11 +46,22 @@ fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
 }
 
 fn handle_client2(stream: TcpStream) -> orfail::Result<()> {
-    let reader = BufReader::new(stream);
+    let reader = BufReader::new(stream.try_clone().or_fail()?);
+    let mut writer = BufWriter::new(stream);
     for line in reader.lines() {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;
-        let request_id = parse_request(json.value()).or_fail()?;
+        let json_value = json.value();
+        let request_id = parse_request(json_value).or_fail()?;
+
+        let response = nojson::object(|f| {
+            f.member("jsonrpc", "2.0")?;
+            if let Some(id) = request_id {
+                f.member("id", id)?;
+            }
+            f.member("result", json_value)
+        });
+        writeln!(writer, "{response}").or_fail()?;
     }
     Ok(())
 }

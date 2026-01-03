@@ -50,12 +50,12 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
         nojson::RawJson::parse(&line)
             .and_then(|json| {
                 let json_value = json.value();
-                let request_id = parse_request(json_value)?;
+                let Some(request_id) = parse_request(json_value)? else {
+                    return Ok(Ok(()));
+                };
                 let response = nojson::object(|f| {
                     f.member("jsonrpc", "2.0")?;
-                    if let Some(id) = request_id {
-                        f.member("id", id)?;
-                    }
+                    f.member("id", request_id)?;
                     f.member("result", json_value)
                 });
                 Ok(writeln!(writer, "{response}"))

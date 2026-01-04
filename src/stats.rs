@@ -2,7 +2,6 @@ use std::{io::Write, time::Duration};
 
 use jsonlrpc::JsonlStream;
 use orfail::OrFail;
-use serde::Serialize;
 
 use crate::{
     call::{Metadata, Output},
@@ -55,33 +54,47 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
         stats.handle_output(output);
     }
     stats.finalize();
-    println!("{}", serde_json::to_string(&stats).or_fail()?);
+    println!("{}", nojson::Json(&stats));
     Ok(())
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 struct Stats {
     rpc_calls: usize,
     duration: f64,
     max_concurrency: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
     count: Option<Counter>,
     rps: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     bps: Option<Bps>,
     latency: Latency,
 
-    #[serde(skip)]
+    // NOTE: The following fields are only used for internal computation
     start_end_times: Vec<(Duration, Duration)>,
-
-    #[serde(skip)]
     latencies: Vec<Duration>,
-
-    #[serde(skip)]
     outgoing_bytes: u64,
-
-    #[serde(skip)]
     incoming_bytes: u64,
+}
+
+impl nojson::DisplayJson for Stats {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("rpc_calls", self.rpc_calls)?;
+            f.member("duration", self.duration)?;
+            f.member("max_concurrency", self.max_concurrency)?;
+
+            if let Some(counter) = &self.count {
+                f.member("count", counter)?;
+            }
+
+            f.member("rps", self.rps)?;
+
+            if let Some(bps) = &self.bps {
+                f.member("bps", bps)?;
+            }
+
+            f.member("latency", &self.latency)
+        })
+    }
 }
 
 impl Stats {
@@ -180,7 +193,7 @@ impl Stats {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 struct Counter {
     batch_calls: usize,
     missing_metadata_calls: usize,
@@ -189,13 +202,33 @@ struct Counter {
     responses: OkOrError,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for Counter {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("batch_calls", self.batch_calls)?;
+            f.member("missing_metadata_calls", self.missing_metadata_calls)?;
+            f.member("requests", self.requests)?;
+            f.member("responses", &self.responses)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct OkOrError {
     ok: usize,
     error: usize,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for OkOrError {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("ok", self.ok)?;
+            f.member("error", self.error)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct Latency {
     min: f64,
     p25: f64,
@@ -205,10 +238,32 @@ struct Latency {
     avg: f64,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for Latency {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("min", self.min)?;
+            f.member("p25", self.p25)?;
+            f.member("p50", self.p50)?;
+            f.member("p75", self.p75)?;
+            f.member("max", self.max)?;
+            f.member("avg", self.avg)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct Bps {
     outgoing: f64,
     incoming: f64,
+}
+
+impl nojson::DisplayJson for Bps {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("outgoing", self.outgoing)?;
+            f.member("incoming", self.incoming)
+        })
+    }
 }
 
 #[derive(Debug, Default)]

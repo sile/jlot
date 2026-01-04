@@ -1,7 +1,4 @@
-use std::{
-    io::BufRead,
-    time::Duration,
-};
+use std::{io::BufRead, time::Duration};
 
 use orfail::OrFail;
 

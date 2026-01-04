@@ -166,8 +166,7 @@ impl Stats {
 
         let metadata = output.to_member("metadata")?.get();
         if let Some(metadata) = metadata {
-            todo!()
-            // self.handle_metadata(metadata, &output);
+            self.handle_metadata2(metadata, output)?;
         }
 
         if let Some(counter) = &mut self.count {
@@ -183,6 +182,46 @@ impl Stats {
                 counter.missing_metadata_calls += 1;
             }
         }
+
+        Ok(())
+    }
+
+    fn handle_metadata2(
+        &mut self,
+        metadata: nojson::RawJsonValue<'_, '_>,
+        output: nojson::RawJsonValue<'_, '_>,
+    ) -> Result<(), nojson::JsonParseError> {
+        let start_time = Duration::from_micros(
+            metadata
+                .to_member("start_time_us")?
+                .required()?
+                .try_into()?,
+        );
+        let end_time =
+            Duration::from_micros(metadata.to_member("end_time_us")?.required()?.try_into()?);
+        self.start_end_times.push((start_time, end_time));
+        self.latencies.push(end_time.saturating_sub(start_time));
+
+        let request_bytes = metadata
+            .to_member("request")?
+            .required()?
+            .as_raw_str()
+            .len();
+        self.outgoing_bytes += request_bytes as u64;
+
+        let response_bytes =
+            output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
+        self.incoming_bytes += response_bytes as u64;
+
+        /*let mut bytes = Bytes::default();
+        for res in output.iter().map(|x| &x.response) {
+            serde_json::to_writer(&mut bytes, res).expect("unreachable");
+        }
+        self.incoming_bytes += bytes.0 as u64;
+
+        let mut bytes = Bytes::default();
+        serde_json::to_writer(&mut bytes, &metadata.request).expect("unreachable");
+        self.outgoing_bytes += bytes.0 as u64;*/
 
         Ok(())
     }

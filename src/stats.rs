@@ -1,4 +1,7 @@
-use std::{io::Write, time::Duration};
+use std::{
+    io::{BufRead, Write},
+    time::Duration,
+};
 
 use jsonlrpc::JsonlStream;
 use orfail::OrFail;
@@ -49,6 +52,13 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
     }
     if bps {
         stats.bps = Some(Bps::default());
+    }
+
+    let reader = std::io::BufReader::new(stdin.lock());
+    for line in reader.lines() {
+        let line = line.or_fail()?;
+        let json = nojson::RawJson::parse(&line).or_fail()?;
+        stats.handle_output2(json.value()).or_fail()?;
     }
     while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
         stats.handle_output(output);
@@ -146,6 +156,35 @@ impl Stats {
                 + 1;
             self.max_concurrency = self.max_concurrency.max(concurrency);
         }
+    }
+
+    fn handle_output2(
+        &mut self,
+        output: nojson::RawJsonValue<'_, '_>,
+    ) -> Result<(), nojson::JsonParseError> {
+        self.rpc_calls += 1;
+
+        let metadata = output.to_member("metadata")?.get();
+        if let Some(metadata) = metadata {
+            todo!()
+            // self.handle_metadata(metadata, &output);
+        }
+
+        if let Some(counter) = &mut self.count {
+            counter.requests += 1;
+
+            if output.to_member("result")?.get().is_some() {
+                counter.responses.ok += 1;
+            } else {
+                counter.responses.error += 1;
+            }
+
+            if metadata.is_none() {
+                counter.missing_metadata_calls += 1;
+            }
+        }
+
+        Ok(())
     }
 
     fn handle_output(&mut self, output: Output) {

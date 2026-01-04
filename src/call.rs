@@ -11,11 +11,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use jsonlrpc::{JsonlStream, RequestId, RequestObject, ResponseObject};
+use jsonlrpc::{JsonlStream, RequestId, ResponseObject};
 use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
-use crate::types::ServerAddr;
+use crate::types::{Request, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("call")
@@ -126,7 +126,7 @@ impl CallCommand {
         let mut next_id = 0;
         for line in reader.lines() {
             let line = line.or_fail()?;
-            let request = parse_request(&line).or_fail()?;
+            let request = Request::parse(line).or_fail()?;
             let mut input = Input::new(request);
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
@@ -222,10 +222,6 @@ impl CallCommand {
     }
 }
 
-fn parse_request(_text: &str) -> Result<RequestObject, nojson::JsonParseError> {
-    todo!()
-}
-
 struct ClientRunner {
     stream: JsonlStream<TcpStream>,
     server_addr: SocketAddr,
@@ -304,13 +300,13 @@ impl ClientRunner {
 
 #[derive(Debug, Clone)]
 struct Input {
-    request: RequestObject,
+    request: Request,
     is_notification: bool,
     metadata_id: Option<RequestId>,
 }
 
 impl Input {
-    fn new(request: RequestObject) -> Self {
+    fn new(request: Request) -> Self {
         let is_notification = request.id.is_none();
         Self {
             request,
@@ -345,7 +341,7 @@ pub struct ResponseWithMetadata {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Metadata {
-    pub request: RequestObject,
+    pub request: Request,
     pub server: SocketAddr,
     pub start_time: Duration,
     pub end_time: Duration,

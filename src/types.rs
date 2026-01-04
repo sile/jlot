@@ -15,11 +15,14 @@ impl FromStr for ServerAddr {
     }
 }
 
+/*
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RequestId {
     Integer(i64),
     String(String),
 }
+*/
+pub type RequestId = jsonlrpc::RequestId;
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -55,7 +58,7 @@ impl Request {
                 "id" => {
                     id = match value.kind() {
                         nojson::JsonValueKind::Integer => {
-                            Some(RequestId::Integer(value.try_into()?))
+                            Some(RequestId::Number(value.try_into()?))
                         }
                         nojson::JsonValueKind::String => Some(RequestId::String(value.try_into()?)),
                         _ => return Err(value.invalid("id must be an integer or string")),

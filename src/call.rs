@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use jsonlrpc::{JsonlStream, RequestId, ResponseObject};
+use jsonlrpc::{RequestId, ResponseObject};
 use orfail::OrFail;
 
 use crate::types::{Request, ServerAddr};
@@ -143,9 +143,9 @@ impl CallCommand {
             let output_tx = output_tx.clone();
             if let Some(stream) = stream {
                 let runner = ClientRunner {
-                    server_addr: stream.inner().peer_addr().or_fail()?,
-                    writer: std::io::BufWriter::new(stream.inner().try_clone().or_fail()?),
-                    stream,
+                    server_addr: stream.peer_addr().or_fail()?,
+                    writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
+                    reader: std::io::BufReader::new(stream),
                     base_time,
                     inputs: inputs.clone(),
                     input_index: input_index.clone(),
@@ -186,7 +186,7 @@ impl CallCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<Option<JsonlStream<TcpStream>>>> {
+    fn connect_to_servers(&self) -> orfail::Result<Vec<Option<TcpStream>>> {
         let mut streams = Vec::new();
         for server in self.servers() {
             if self.dry_run {
@@ -195,7 +195,7 @@ impl CallCommand {
                 let socket = TcpStream::connect(&server.0)
                     .or_fail_with(|e| format!("Failed to connect to '{}': {e}", server.0))?;
                 socket.set_nodelay(true).or_fail()?;
-                streams.push(Some(JsonlStream::new(socket)));
+                streams.push(Some(socket));
             }
         }
         Ok(streams)
@@ -223,8 +223,8 @@ impl CallCommand {
 }
 
 struct ClientRunner {
-    stream: JsonlStream<TcpStream>,
     writer: std::io::BufWriter<TcpStream>,
+    reader: std::io::BufReader<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
     inputs: Arc<Vec<Input>>,
@@ -280,7 +280,9 @@ impl ClientRunner {
     }
 
     fn recv_response(&mut self) -> orfail::Result<()> {
-        let mut response: ResponseWithMetadata = self.stream.read_value().or_fail()?;
+        let mut response_line = String::new();
+        self.reader.read_line(&mut response_line).or_fail()?;
+        let mut response = ResponseWithMetadata::parse(response_line).or_fail()?;
 
         let metadata = if self.requests.is_empty() {
             None
@@ -337,6 +339,12 @@ pub type Output = ResponseWithMetadata;
 pub struct ResponseWithMetadata {
     pub response: ResponseObject,
     pub metadata: Option<Metadata>,
+}
+
+impl ResponseWithMetadata {
+    pub fn parse(text: String) -> Result<Self, nojson::JsonParseError> {
+        todo!()
+    }
 }
 
 impl nojson::DisplayJson for ResponseWithMetadata {

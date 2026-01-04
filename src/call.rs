@@ -348,10 +348,10 @@ impl nojson::DisplayJson for ResponseWithMetadata {
                 f.member(
                     "metadata",
                     nojson::object(|f| {
-                        f.member("request", nojson::Json(&metadata.request))?;
-                        f.member("server", &metadata.server.0)?;
+                        f.member("request", &metadata.request.json)?;
+                        f.member("server", metadata.server)?;
                         f.member("start_time_us", metadata.start_time.as_micros())?;
-                        f.member("end_time_us", metadata.end_time.as_micros())?;
+                        f.member("end_time_us", metadata.end_time.as_micros())
                     }),
                 )?;
             }

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    io::BufRead,
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
     sync::{
@@ -14,7 +15,7 @@ use jsonlrpc::{JsonlStream, RequestId, RequestObject, ResponseObject};
 use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
-use crate::{io, types::ServerAddr};
+use crate::types::ServerAddr;
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("call")
@@ -120,13 +121,12 @@ impl CallCommand {
         });
 
         let stdin = std::io::stdin();
-        let input_stream = serde_json::Deserializer::from_reader(stdin.lock());
+        let reader = std::io::BufReader::new(stdin.lock());
         let mut inputs = Vec::new();
         let mut next_id = 0;
-        for request in input_stream.into_iter() {
-            let Some(request) = io::maybe_eos(request).or_fail()? else {
-                break;
-            };
+        for line in reader.lines() {
+            let line = line.or_fail()?;
+            let request = parse_request(&line).or_fail()?;
             let mut input = Input::new(request);
             if self.add_metadata {
                 input.reassign_id(&mut next_id);
@@ -220,6 +220,10 @@ impl CallCommand {
             })
             .take_while(|pipelining| *pipelining > 0)
     }
+}
+
+fn parse_request(text: &str) -> Result<RequestObject, nojson::JsonParseError> {
+    todo!()
 }
 
 struct ClientRunner {

@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use jsonlrpc::{JsonlStream, MaybeBatch, RequestId, RequestObject, ResponseObject};
+use jsonlrpc::{JsonlStream, RequestId, RequestObject, ResponseObject};
 use orfail::OrFail;
 use serde::{Deserialize, Serialize};
 
@@ -277,22 +277,19 @@ impl ClientRunner {
     }
 
     fn recv_response(&mut self) -> orfail::Result<()> {
-        let mut response: MaybeBatch<ResponseWithMetadata> = self.stream.read_value().or_fail()?;
+        let mut response: ResponseWithMetadata = self.stream.read_value().or_fail()?;
 
         let metadata = if self.requests.is_empty() {
             None
+        } else if let Some(id) = response.response.id() {
+            self.requests.remove(id)
         } else {
-            response
-                .iter()
-                .find_map(|r| r.response.id())
-                .and_then(|id| self.requests.remove(id))
+            None
         };
 
         if let Some(mut metadata) = metadata {
             metadata.end_time = self.base_time.elapsed();
-            if let Some(r) = response.iter_mut().next() {
-                r.metadata = Some(metadata);
-            }
+            response.metadata = Some(metadata);
         }
 
         self.output_tx.send(response).or_fail()?;
@@ -303,14 +300,14 @@ impl ClientRunner {
 
 #[derive(Debug, Clone)]
 struct Input {
-    request: MaybeBatch<RequestObject>,
+    request: RequestObject,
     is_notification: bool,
     metadata_id: Option<RequestId>,
 }
 
 impl Input {
-    fn new(request: MaybeBatch<RequestObject>) -> Self {
-        let is_notification = request.iter().all(|r| r.id.is_none());
+    fn new(request: RequestObject) -> Self {
+        let is_notification = request.id.is_none();
         Self {
             request,
             is_notification,
@@ -323,17 +320,15 @@ impl Input {
             return;
         }
 
-        for r in self.request.iter_mut().filter(|r| r.id.is_some()) {
-            r.id = Some(RequestId::Number(*next_id));
-            if self.metadata_id.is_none() {
-                self.metadata_id = r.id.clone();
-            }
-            *next_id += 1;
+        self.request.id = Some(RequestId::Number(*next_id));
+        if self.metadata_id.is_none() {
+            self.metadata_id = self.request.id.clone();
         }
+        *next_id += 1;
     }
 }
 
-pub type Output = MaybeBatch<ResponseWithMetadata>;
+pub type Output = ResponseWithMetadata;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseWithMetadata {
@@ -346,7 +341,7 @@ pub struct ResponseWithMetadata {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Metadata {
-    pub request: MaybeBatch<RequestObject>,
+    pub request: RequestObject,
     pub server: SocketAddr,
     pub start_time: Duration,
     pub end_time: Duration,
@@ -394,13 +389,7 @@ impl ClientDryRunner {
             let mut response = ResponseWithMetadata {
                 response: ResponseObject::Ok {
                     jsonrpc: jsonlrpc::JsonRpcVersion::V2,
-                    id: input
-                        .request
-                        .iter()
-                        .next()
-                        .and_then(|r| r.id.clone())
-                        .or_fail()
-                        .expect("unreachable"),
+                    id: input.request.id.clone().or_fail().expect("unreachable"),
                     result: serde_json::Value::Null,
                 },
                 metadata: None,
@@ -425,9 +414,7 @@ impl ClientDryRunner {
         if let Some(metadata) = &mut response.metadata {
             metadata.end_time = self.base_time.elapsed();
         }
-        self.output_tx
-            .send(MaybeBatch::Single(response))
-            .or_fail()?;
+        self.output_tx.send(response).or_fail()?;
         self.ongoing_calls -= 1;
         Ok(())
     }

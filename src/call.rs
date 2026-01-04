@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    io::BufRead,
+    io::{BufRead, Write},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
     sync::{
@@ -13,7 +13,6 @@ use std::{
 
 use jsonlrpc::{JsonlStream, RequestId, ResponseObject};
 use orfail::OrFail;
-use serde::{Deserialize, Serialize};
 
 use crate::types::{Request, ServerAddr};
 
@@ -145,6 +144,7 @@ impl CallCommand {
             if let Some(stream) = stream {
                 let runner = ClientRunner {
                     server_addr: stream.inner().peer_addr().or_fail()?,
+                    writer: std::io::BufWriter::new(stream.inner().try_clone().or_fail()?),
                     stream,
                     base_time,
                     inputs: inputs.clone(),
@@ -224,6 +224,7 @@ impl CallCommand {
 
 struct ClientRunner {
     stream: JsonlStream<TcpStream>,
+    writer: std::io::BufWriter<TcpStream>,
     server_addr: SocketAddr,
     base_time: Instant,
     inputs: Arc<Vec<Input>>,
@@ -259,7 +260,9 @@ impl ClientRunner {
         let is_notification = input.is_notification;
 
         let start_time = self.base_time.elapsed();
-        self.stream.write_value(&input.request).or_fail()?;
+        writeln!(self.writer, "{}", input.request.json).or_fail()?;
+        self.writer.flush().or_fail()?;
+
         if !is_notification {
             self.ongoing_calls += 1;
 
@@ -330,16 +333,13 @@ impl Input {
 
 pub type Output = ResponseWithMetadata;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct ResponseWithMetadata {
-    #[serde(flatten)]
     pub response: ResponseObject,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Metadata {
     pub request: Request,
     pub server: SocketAddr,

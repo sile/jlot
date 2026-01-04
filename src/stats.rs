@@ -1,15 +1,9 @@
 use std::{
-    io::{BufRead, Write},
+    io::BufRead,
     time::Duration,
 };
 
-use jsonlrpc::JsonlStream;
 use orfail::OrFail;
-
-use crate::{
-    call::{Metadata, Output},
-    io,
-};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("stats")
@@ -45,7 +39,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 
 fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
     let stdin = std::io::stdin();
-    let mut stream = JsonlStream::new(stdin.lock());
     let mut stats = Stats::default();
     if count {
         stats.count = Some(Counter::default());
@@ -59,9 +52,6 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;
         stats.handle_output2(json.value()).or_fail()?;
-    }
-    while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
-        stats.handle_output(output);
     }
     stats.finalize();
     println!("{}", nojson::Json(&stats));
@@ -213,69 +203,13 @@ impl Stats {
             output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
         self.incoming_bytes += response_bytes as u64;
 
-        /*let mut bytes = Bytes::default();
-        for res in output.iter().map(|x| &x.response) {
-            serde_json::to_writer(&mut bytes, res).expect("unreachable");
-        }
-        self.incoming_bytes += bytes.0 as u64;
-
-        let mut bytes = Bytes::default();
-        serde_json::to_writer(&mut bytes, &metadata.request).expect("unreachable");
-        self.outgoing_bytes += bytes.0 as u64;*/
-
         Ok(())
-    }
-
-    fn handle_output(&mut self, output: Output) {
-        self.rpc_calls += 1;
-
-        if let Some(counter) = &mut self.count {
-            if output.is_batch() {
-                counter.batch_calls += 1;
-            }
-
-            counter.requests += output.len();
-            for res in output.iter() {
-                if res.response.to_std_result().is_ok() {
-                    counter.responses.ok += 1;
-                } else {
-                    counter.responses.error += 1;
-                }
-            }
-
-            if output.iter().all(|res| res.metadata.is_none()) {
-                counter.missing_metadata_calls += 1;
-            }
-        }
-
-        if let Some(metadata) = output.iter().find_map(|res| res.metadata.as_ref()) {
-            self.handle_metadata(metadata, &output);
-        }
-    }
-
-    fn handle_metadata(&mut self, metadata: &Metadata, output: &Output) {
-        self.start_end_times
-            .push((metadata.start_time, metadata.end_time));
-        self.latencies
-            .push(metadata.end_time.saturating_sub(metadata.start_time));
-
-        let mut bytes = Bytes::default();
-        for res in output.iter().map(|x| &x.response) {
-            serde_json::to_writer(&mut bytes, res).expect("unreachable");
-        }
-        self.incoming_bytes += bytes.0 as u64;
-
-        let mut bytes = Bytes::default();
-        serde_json::to_writer(&mut bytes, &metadata.request).expect("unreachable");
-        self.outgoing_bytes += bytes.0 as u64;
     }
 }
 
 #[derive(Debug, Default)]
 struct Counter {
-    batch_calls: usize,
     missing_metadata_calls: usize,
-
     requests: usize,
     responses: OkOrError,
 }
@@ -283,7 +217,6 @@ struct Counter {
 impl nojson::DisplayJson for Counter {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            f.member("batch_calls", self.batch_calls)?;
             f.member("missing_metadata_calls", self.missing_metadata_calls)?;
             f.member("requests", self.requests)?;
             f.member("responses", &self.responses)
@@ -341,19 +274,5 @@ impl nojson::DisplayJson for Bps {
             f.member("outgoing", self.outgoing)?;
             f.member("incoming", self.incoming)
         })
-    }
-}
-
-#[derive(Debug, Default)]
-struct Bytes(usize);
-
-impl Write for Bytes {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0 += buf.len();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
     }
 }

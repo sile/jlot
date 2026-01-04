@@ -113,9 +113,9 @@ impl CallCommand {
 
         let output_thread = std::thread::spawn(move || {
             let stdout = std::io::stdout();
-            let mut output_stream = JsonlStream::new(stdout.lock());
+            let mut writer = std::io::BufWriter::new(stdout.lock());
             while let Ok(output) = output_rx.recv() {
-                let _ = output_stream.write_value(&output);
+                let _ = writeln!(writer, "{}", nojson::Json(output));
             }
         });
 
@@ -337,6 +337,28 @@ pub type Output = ResponseWithMetadata;
 pub struct ResponseWithMetadata {
     pub response: ResponseObject,
     pub metadata: Option<Metadata>,
+}
+
+impl nojson::DisplayJson for ResponseWithMetadata {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            // TODO: f.member("response", nojson::Json(&self.response))?;
+
+            if let Some(metadata) = &self.metadata {
+                f.member(
+                    "metadata",
+                    nojson::object(|f| {
+                        f.member("request", nojson::Json(&metadata.request))?;
+                        f.member("server", &metadata.server.0)?;
+                        f.member("start_time_us", metadata.start_time.as_micros())?;
+                        f.member("end_time_us", metadata.end_time.as_micros())?;
+                    }),
+                )?;
+            }
+
+            Ok(())
+        })
+    }
 }
 
 #[derive(Debug)]

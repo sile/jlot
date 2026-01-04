@@ -222,7 +222,7 @@ impl CallCommand {
     }
 }
 
-fn parse_request(text: &str) -> Result<RequestObject, nojson::JsonParseError> {
+fn parse_request(_text: &str) -> Result<RequestObject, nojson::JsonParseError> {
     todo!()
 }
 

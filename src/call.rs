@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     io::{BufRead, Write},
     net::{SocketAddr, TcpStream},
     num::NonZeroUsize,
@@ -11,10 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use jsonlrpc::{RequestId, ResponseObject};
+use jsonlrpc::RequestId;
 use orfail::OrFail;
 
-use crate::types::{Request, ServerAddr};
+use crate::types::{Request, Response, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("call")
@@ -57,14 +57,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .doc("Add metadata to each response object (note that the ID of each request will be reassigned to be unique)")
         .take(args)
         .is_present();
-    let dry_run: bool = noargs::flag("dry-run")
-        .doc(concat!(
-            "Run the command without connecting to or communicating with actual servers\n",
-            "\n",
-            "All RPC responses will be set to `null`"
-        ))
-        .take(args)
-        .is_present();
 
     if args.metadata().help_mode {
         return Ok(false);
@@ -75,7 +67,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         additional_server_addrs,
         concurrency,
         add_metadata,
-        dry_run,
     )?;
 
     Ok(true)
@@ -86,14 +77,12 @@ fn run_call(
     additional_server_addrs: Vec<ServerAddr>,
     concurrency: NonZeroUsize,
     add_metadata: bool,
-    dry_run: bool,
 ) -> orfail::Result<()> {
     let call_command = CallCommand {
         server_addr,
         additional_server_addrs,
         concurrency,
         add_metadata,
-        dry_run,
     };
     call_command.run()
 }
@@ -103,7 +92,6 @@ struct CallCommand {
     additional_server_addrs: Vec<ServerAddr>,
     concurrency: NonZeroUsize,
     add_metadata: bool,
-    dry_run: bool,
 }
 
 impl CallCommand {
@@ -137,47 +125,26 @@ impl CallCommand {
         let input_index = Arc::new(AtomicUsize::new(0));
 
         let base_time = Instant::now();
-        for ((server_addr, stream), pipelining) in
-            self.servers().zip(streams).zip(self.pipelinings())
-        {
+        for (stream, pipelining) in streams.into_iter().zip(self.pipelinings()) {
             let output_tx = output_tx.clone();
-            if let Some(stream) = stream {
-                let runner = ClientRunner {
-                    server_addr: stream.peer_addr().or_fail()?,
-                    writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
-                    reader: std::io::BufReader::new(stream),
-                    base_time,
-                    inputs: inputs.clone(),
-                    input_index: input_index.clone(),
-                    output_tx,
-                    pipelining,
-                    ongoing_calls: 0,
-                    requests: HashMap::new(),
-                };
-                std::thread::spawn(move || {
-                    runner
-                        .run()
-                        .or_fail()
-                        .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
-                });
-            } else {
-                let runner = ClientDryRunner {
-                    server_addr: server_addr.0.parse::<SocketAddr>().or_fail()?,
-                    base_time,
-                    inputs: inputs.clone(),
-                    input_index: input_index.clone(),
-                    output_tx,
-                    pipelining,
-                    ongoing_calls: 0,
-                    responses: VecDeque::new(),
-                };
-                std::thread::spawn(move || {
-                    runner
-                        .run()
-                        .or_fail()
-                        .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
-                });
-            }
+            let runner = ClientRunner {
+                server_addr: stream.peer_addr().or_fail()?,
+                writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
+                reader: std::io::BufReader::new(stream),
+                base_time,
+                inputs: inputs.clone(),
+                input_index: input_index.clone(),
+                output_tx,
+                pipelining,
+                ongoing_calls: 0,
+                requests: HashMap::new(),
+            };
+            std::thread::spawn(move || {
+                runner
+                    .run()
+                    .or_fail()
+                    .unwrap_or_else(|e| eprintln!("Thread aborted: {}", e));
+            });
         }
 
         std::mem::drop(output_tx);
@@ -186,17 +153,13 @@ impl CallCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<Option<TcpStream>>> {
+    fn connect_to_servers(&self) -> orfail::Result<Vec<TcpStream>> {
         let mut streams = Vec::new();
         for server in self.servers() {
-            if self.dry_run {
-                streams.push(None);
-            } else {
-                let socket = TcpStream::connect(&server.0)
-                    .or_fail_with(|e| format!("Failed to connect to '{}': {e}", server.0))?;
-                socket.set_nodelay(true).or_fail()?;
-                streams.push(Some(socket));
-            }
+            let socket = TcpStream::connect(&server.0)
+                .or_fail_with(|e| format!("Failed to connect to '{}': {e}", server.0))?;
+            socket.set_nodelay(true).or_fail()?;
+            streams.push(socket);
         }
         Ok(streams)
     }
@@ -286,7 +249,7 @@ impl ClientRunner {
 
         let metadata = if self.requests.is_empty() {
             None
-        } else if let Some(id) = response.response.id() {
+        } else if let Some(id) = &response.response.id {
             self.requests.remove(id)
         } else {
             None
@@ -337,7 +300,7 @@ pub type Output = ResponseWithMetadata;
 
 #[derive(Debug)]
 pub struct ResponseWithMetadata {
-    pub response: ResponseObject,
+    pub response: Response,
     pub metadata: Option<Metadata>,
 }
 
@@ -375,77 +338,4 @@ pub struct Metadata {
     pub server: SocketAddr,
     pub start_time: Duration,
     pub end_time: Duration,
-}
-
-struct ClientDryRunner {
-    server_addr: SocketAddr,
-    base_time: Instant,
-    inputs: Arc<Vec<Input>>,
-    input_index: Arc<AtomicUsize>,
-    output_tx: mpsc::Sender<Output>,
-    pipelining: usize,
-    ongoing_calls: usize,
-    responses: VecDeque<ResponseWithMetadata>,
-}
-
-impl ClientDryRunner {
-    fn run(mut self) -> orfail::Result<()> {
-        while self.run_one().or_fail()? {}
-        Ok(())
-    }
-
-    fn run_one(&mut self) -> orfail::Result<bool> {
-        while self.ongoing_calls < self.pipelining {
-            let i = self.input_index.fetch_add(1, Ordering::SeqCst);
-            if i < self.inputs.len() {
-                self.send_request(self.inputs[i].clone());
-            } else if self.ongoing_calls == 0 {
-                return Ok(false);
-            } else {
-                break;
-            }
-        }
-        self.recv_response().or_fail()?;
-        Ok(true)
-    }
-
-    fn send_request(&mut self, input: Input) {
-        let is_notification = input.is_notification;
-
-        let start_time = self.base_time.elapsed();
-        if !is_notification {
-            self.ongoing_calls += 1;
-
-            let mut response = ResponseWithMetadata {
-                response: ResponseObject::Ok {
-                    jsonrpc: jsonlrpc::JsonRpcVersion::V2,
-                    id: input.request.id.clone().or_fail().expect("unreachable"),
-                    result: serde_json::Value::Null,
-                },
-                metadata: None,
-            };
-
-            if input.metadata_id.is_some() {
-                let metadata = Metadata {
-                    request: input.request,
-                    server: self.server_addr,
-                    start_time,
-                    end_time: Duration::default(),
-                };
-                response.metadata = Some(metadata);
-            }
-
-            self.responses.push_back(response);
-        }
-    }
-
-    fn recv_response(&mut self) -> orfail::Result<()> {
-        let mut response = self.responses.pop_front().or_fail()?;
-        if let Some(metadata) = &mut response.metadata {
-            metadata.end_time = self.base_time.elapsed();
-        }
-        self.output_tx.send(response).or_fail()?;
-        self.ongoing_calls -= 1;
-        Ok(())
-    }
 }

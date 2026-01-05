@@ -11,10 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use jsonlrpc::RequestId;
 use orfail::OrFail;
 
-use crate::types::{Request, Response, ServerAddr};
+use crate::types::{Request, RequestId, Response, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("call")

@@ -15,14 +15,11 @@ impl FromStr for ServerAddr {
     }
 }
 
-/*
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RequestId {
-    Integer(i64),
+    Number(i64),
     String(String),
 }
-*/
-pub type RequestId = jsonlrpc::RequestId;
 
 #[derive(Debug, Clone)]
 pub struct Request {

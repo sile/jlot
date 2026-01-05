@@ -50,7 +50,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
                 json.value().kind(),
                 nojson::JsonValueKind::Array | nojson::JsonValueKind::Object
             ) {
-                return Err(json.value().invalid("TODO"));
+                return Err(json.value().invalid("must be a JSON array or JSON object"));
             }
             Ok(json.into_owned())
         })?;

@@ -130,7 +130,7 @@ impl Response {
                             Some(RequestId::Number(value.try_into()?))
                         }
                         nojson::JsonValueKind::String => Some(RequestId::String(value.try_into()?)),
-                        _ => return Err(value.invalid("id must be an integer, string")),
+                        _ => return Err(value.invalid("id must be an integer or string")),
                     };
                 }
                 "result" | "error" => {

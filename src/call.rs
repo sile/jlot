@@ -301,14 +301,13 @@ impl ResponseWithMetadata {
 impl nojson::DisplayJson for ResponseWithMetadata {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            f.members(
-                self.response
-                    .json
-                    .value()
-                    .to_object()
-                    .expect("TODO")
-                    .map(|(k, v)| (k.to_unquoted_string_str().expect("TODO"), v)),
-            )?;
+            if let Ok(members) = self.response.json.value().to_object() {
+                for (name, value) in members {
+                    if let Ok(name) = name.to_unquoted_string_str() {
+                        f.member(name, value)?;
+                    }
+                }
+            }
 
             if let Some(metadata) = &self.metadata {
                 f.member(

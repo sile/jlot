@@ -1,13 +1,6 @@
-use std::{io::Write, time::Duration};
+use std::{io::BufRead, time::Duration};
 
-use jsonlrpc::JsonlStream;
 use orfail::OrFail;
-use serde::Serialize;
-
-use crate::{
-    call::{Metadata, Output},
-    io,
-};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("stats")
@@ -43,7 +36,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 
 fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
     let stdin = std::io::stdin();
-    let mut stream = JsonlStream::new(stdin.lock());
     let mut stats = Stats::default();
     if count {
         stats.count = Some(Counter::default());
@@ -51,37 +43,55 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
     if bps {
         stats.bps = Some(Bps::default());
     }
-    while let Some(output) = io::maybe_eos(stream.read_value::<Output>()).or_fail()? {
-        stats.handle_output(output);
+
+    let reader = std::io::BufReader::new(stdin.lock());
+    for line in reader.lines() {
+        let line = line.or_fail()?;
+        let json = nojson::RawJson::parse(&line).or_fail()?;
+        stats.handle_output2(json.value()).or_fail()?;
     }
     stats.finalize();
-    println!("{}", serde_json::to_string(&stats).or_fail()?);
+    println!("{}", nojson::Json(&stats));
     Ok(())
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 struct Stats {
     rpc_calls: usize,
     duration: f64,
     max_concurrency: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
     count: Option<Counter>,
     rps: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     bps: Option<Bps>,
     latency: Latency,
 
-    #[serde(skip)]
+    // NOTE: The following fields are only used for internal computation
     start_end_times: Vec<(Duration, Duration)>,
-
-    #[serde(skip)]
     latencies: Vec<Duration>,
-
-    #[serde(skip)]
     outgoing_bytes: u64,
-
-    #[serde(skip)]
     incoming_bytes: u64,
+}
+
+impl nojson::DisplayJson for Stats {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("rpc_calls", self.rpc_calls)?;
+            f.member("duration", self.duration)?;
+            f.member("max_concurrency", self.max_concurrency)?;
+
+            if let Some(counter) = &self.count {
+                f.member("count", counter)?;
+            }
+
+            f.member("rps", self.rps)?;
+
+            if let Some(bps) = &self.bps {
+                f.member("bps", bps)?;
+            }
+
+            f.member("latency", &self.latency)
+        })
+    }
 }
 
 impl Stats {
@@ -135,67 +145,98 @@ impl Stats {
         }
     }
 
-    fn handle_output(&mut self, output: Output) {
+    fn handle_output2(
+        &mut self,
+        output: nojson::RawJsonValue<'_, '_>,
+    ) -> Result<(), nojson::JsonParseError> {
         self.rpc_calls += 1;
 
+        let metadata = output.to_member("metadata")?.get();
+        if let Some(metadata) = metadata {
+            self.handle_metadata2(metadata, output)?;
+        }
+
         if let Some(counter) = &mut self.count {
-            if output.is_batch() {
-                counter.batch_calls += 1;
+            counter.requests += 1;
+
+            if output.to_member("result")?.get().is_some() {
+                counter.responses.ok += 1;
+            } else {
+                counter.responses.error += 1;
             }
 
-            counter.requests += output.len();
-            for res in output.iter() {
-                if res.response.to_std_result().is_ok() {
-                    counter.responses.ok += 1;
-                } else {
-                    counter.responses.error += 1;
-                }
-            }
-
-            if output.iter().all(|res| res.metadata.is_none()) {
+            if metadata.is_none() {
                 counter.missing_metadata_calls += 1;
             }
         }
 
-        if let Some(metadata) = output.iter().find_map(|res| res.metadata.as_ref()) {
-            self.handle_metadata(metadata, &output);
-        }
+        Ok(())
     }
 
-    fn handle_metadata(&mut self, metadata: &Metadata, output: &Output) {
-        self.start_end_times
-            .push((metadata.start_time, metadata.end_time));
-        self.latencies
-            .push(metadata.end_time.saturating_sub(metadata.start_time));
+    fn handle_metadata2(
+        &mut self,
+        metadata: nojson::RawJsonValue<'_, '_>,
+        output: nojson::RawJsonValue<'_, '_>,
+    ) -> Result<(), nojson::JsonParseError> {
+        let start_time = Duration::from_micros(
+            metadata
+                .to_member("start_time_us")?
+                .required()?
+                .try_into()?,
+        );
+        let end_time =
+            Duration::from_micros(metadata.to_member("end_time_us")?.required()?.try_into()?);
+        self.start_end_times.push((start_time, end_time));
+        self.latencies.push(end_time.saturating_sub(start_time));
 
-        let mut bytes = Bytes::default();
-        for res in output.iter().map(|x| &x.response) {
-            serde_json::to_writer(&mut bytes, res).expect("unreachable");
-        }
-        self.incoming_bytes += bytes.0 as u64;
+        let request_bytes = metadata
+            .to_member("request")?
+            .required()?
+            .as_raw_str()
+            .len();
+        self.outgoing_bytes += request_bytes as u64;
 
-        let mut bytes = Bytes::default();
-        serde_json::to_writer(&mut bytes, &metadata.request).expect("unreachable");
-        self.outgoing_bytes += bytes.0 as u64;
+        let response_bytes =
+            output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
+        self.incoming_bytes += response_bytes as u64;
+
+        Ok(())
     }
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default)]
 struct Counter {
-    batch_calls: usize,
     missing_metadata_calls: usize,
-
     requests: usize,
     responses: OkOrError,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for Counter {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("missing_metadata_calls", self.missing_metadata_calls)?;
+            f.member("requests", self.requests)?;
+            f.member("responses", &self.responses)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct OkOrError {
     ok: usize,
     error: usize,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for OkOrError {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("ok", self.ok)?;
+            f.member("error", self.error)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct Latency {
     min: f64,
     p25: f64,
@@ -205,22 +246,30 @@ struct Latency {
     avg: f64,
 }
 
-#[derive(Debug, Default, Serialize)]
+impl nojson::DisplayJson for Latency {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("min", self.min)?;
+            f.member("p25", self.p25)?;
+            f.member("p50", self.p50)?;
+            f.member("p75", self.p75)?;
+            f.member("max", self.max)?;
+            f.member("avg", self.avg)
+        })
+    }
+}
+
+#[derive(Debug, Default)]
 struct Bps {
     outgoing: f64,
     incoming: f64,
 }
 
-#[derive(Debug, Default)]
-struct Bytes(usize);
-
-impl Write for Bytes {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0 += buf.len();
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+impl nojson::DisplayJson for Bps {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.object(|f| {
+            f.member("outgoing", self.outgoing)?;
+            f.member("incoming", self.incoming)
+        })
     }
 }

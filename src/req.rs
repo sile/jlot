@@ -62,12 +62,12 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     // Generate and output requests
     let json = nojson::object(|f| {
         f.member("jsonrpc", "2.0")?;
-        if !notification {
-            f.member("id", &id)?;
-        }
         f.member("method", &method)?;
         if let Some(params) = &params {
             f.member("params", params)?;
+        }
+        if !notification {
+            f.member("id", &id)?;
         }
         Ok(())
     });

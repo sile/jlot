@@ -94,3 +94,64 @@ impl Request {
         Ok(id)
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct Response {
+    pub json: nojson::RawJsonOwned,
+    pub id: Option<RequestId>,
+}
+
+impl Response {
+    pub fn parse(json_text: String) -> Result<Self, nojson::JsonParseError> {
+        let json = nojson::RawJsonOwned::parse(json_text)?;
+        let id = Self::validate_response_and_parse_id(json.value())?;
+        Ok(Self { json, id })
+    }
+
+    fn validate_response_and_parse_id(
+        value: nojson::RawJsonValue<'_, '_>,
+    ) -> Result<Option<RequestId>, nojson::JsonParseError> {
+        if value.kind() == nojson::JsonValueKind::Array {
+            return Err(value.invalid("batch responses are not supported"));
+        }
+
+        let mut has_jsonrpc = false;
+        let mut id = None;
+        let mut has_result_or_error = false;
+
+        for (name, value) in value.to_object()? {
+            match name.to_unquoted_string_str()?.as_ref() {
+                "jsonrpc" => {
+                    if value.to_unquoted_string_str()? != "2.0" {
+                        return Err(value.invalid("jsonrpc version must be '2.0'"));
+                    }
+                    has_jsonrpc = true;
+                }
+                "id" => {
+                    id = match value.kind() {
+                        nojson::JsonValueKind::Integer => {
+                            Some(RequestId::Number(value.try_into()?))
+                        }
+                        nojson::JsonValueKind::String => Some(RequestId::String(value.try_into()?)),
+                        _ => return Err(value.invalid("id must be an integer, string")),
+                    };
+                }
+                "result" | "error" => {
+                    has_result_or_error = true;
+                }
+                _ => {
+                    // Ignore unknown members
+                }
+            }
+        }
+
+        if !has_jsonrpc {
+            return Err(value.invalid("jsonrpc field is required"));
+        }
+        if !has_result_or_error {
+            return Err(value.invalid("result or error field is required"));
+        }
+
+        Ok(id)
+    }
+}

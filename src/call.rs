@@ -53,7 +53,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .then(|o| o.value().parse())?;
     let add_metadata: bool = noargs::flag("add-metadata")
         .short('m')
-        .doc("Add metadata to each response object (note that the ID of each request will be reassigned to be unique)")
+        .doc("Add metadata to each response object")
         .take(args)
         .is_present();
 
@@ -95,13 +95,14 @@ impl CallCommand {
         let stdin = std::io::stdin();
         let reader = std::io::BufReader::new(stdin.lock());
         let mut inputs = Vec::new();
-        let mut next_id = 0;
+
         for line in reader.lines() {
             let line = line.or_fail()?;
             let request = Request::parse(line).or_fail()?;
             let mut input = Input::new(request);
             if self.add_metadata {
-                input.reassign_id(&mut next_id);
+                // TODO: ID conflict handling
+                input.metadata_id = input.request.id.clone();
             }
             inputs.push(input);
         }
@@ -266,18 +267,6 @@ impl Input {
             is_notification,
             metadata_id: None,
         }
-    }
-
-    fn reassign_id(&mut self, next_id: &mut i64) {
-        if self.is_notification {
-            return;
-        }
-
-        self.request.id = Some(RequestId::Number(*next_id));
-        if self.metadata_id.is_none() {
-            self.metadata_id = self.request.id.clone();
-        }
-        *next_id += 1;
     }
 }
 

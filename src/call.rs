@@ -306,7 +306,10 @@ pub struct ResponseWithMetadata {
 
 impl ResponseWithMetadata {
     pub fn parse(text: String) -> Result<Self, nojson::JsonParseError> {
-        todo!()
+        Ok(Self {
+            response: Response::parse(text)?,
+            metadata: None,
+        })
     }
 }
 

@@ -313,7 +313,14 @@ impl ResponseWithMetadata {
 impl nojson::DisplayJson for ResponseWithMetadata {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            // TODO: f.member("response", nojson::Json(&self.response))?;
+            f.members(
+                self.response
+                    .json
+                    .value()
+                    .to_object()
+                    .expect("TODO")
+                    .map(|(k, v)| (k.to_unquoted_string_str().expect("TODO"), v)),
+            )?;
 
             if let Some(metadata) = &self.metadata {
                 f.member(

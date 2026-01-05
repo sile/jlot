@@ -62,29 +62,15 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    run_call(
-        server_addr,
-        additional_server_addrs,
-        concurrency,
-        add_metadata,
-    )?;
-
-    Ok(true)
-}
-
-fn run_call(
-    server_addr: ServerAddr,
-    additional_server_addrs: Vec<ServerAddr>,
-    concurrency: NonZeroUsize,
-    add_metadata: bool,
-) -> orfail::Result<()> {
     let call_command = CallCommand {
         server_addr,
         additional_server_addrs,
         concurrency,
         add_metadata,
     };
-    call_command.run()
+    call_command.run().or_fail()?;
+
+    Ok(true)
 }
 
 struct CallCommand {

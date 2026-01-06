@@ -73,7 +73,8 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                             f.member("code", -32600)?; // invalid-request code
                             f.member("message", e.to_string())
                         }),
-                    )
+                    )?;
+                    f.member("id", ())
                 });
                 writeln!(writer, "{response}")
             })

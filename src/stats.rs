@@ -176,51 +176,31 @@ impl Stats {
     ) -> std::fmt::Result {
         f.member(
             "count",
-            nojson::json(|f| {
-                f.set_indent_size(0);
-                f.object(|f| {
-                    f.member("success", self.success_count)?;
-                    f.member("error", self.error_count)
-                })?;
-                f.set_indent_size(2);
-                Ok(())
+            no_indent_object(|f| {
+                f.member("success", self.success_count)?;
+                f.member("error", self.error_count)
             }),
         )?;
         f.member(
             "size",
-            nojson::json(|f| {
-                f.set_indent_size(0);
-                f.object(|f| {
-                    f.member("request_avg_bytes", avg_request_size)?;
-                    f.member("response_avg_bytes", avg_response_size)
-                })?;
-                f.set_indent_size(2);
-                Ok(())
+            no_indent_object(|f| {
+                f.member("request_avg_bytes", avg_request_size)?;
+                f.member("response_avg_bytes", avg_response_size)
             }),
         )?;
         f.member(
             "latency",
-            nojson::json(|f| {
-                f.set_indent_size(0);
-                f.object(|f| {
-                    f.member("min", latency_stats.min)?;
-                    f.member("p25", latency_stats.p25)?;
-                    f.member("p50", latency_stats.p50)?;
-                    f.member("p75", latency_stats.p75)?;
-                    f.member("max", latency_stats.max)
-                })?;
-                f.set_indent_size(2);
-                Ok(())
+            no_indent_object(|f| {
+                f.member("min", latency_stats.min)?;
+                f.member("p25", latency_stats.p25)?;
+                f.member("p50", latency_stats.p50)?;
+                f.member("p75", latency_stats.p75)?;
+                f.member("max", latency_stats.max)
             }),
         )?;
         f.member(
             "concurrency",
-            nojson::json(|f| {
-                f.set_indent_size(0);
-                f.object(|f| f.member("max", max_concurrency))?;
-                f.set_indent_size(2);
-                Ok(())
-            }),
+            no_indent_object(|f| f.member("max", max_concurrency)),
         )?;
         Ok(())
     }
@@ -284,4 +264,16 @@ struct LatencyStats {
     p75: f64,
     max: f64,
     avg: f64,
+}
+
+fn no_indent_object<F>(f: F) -> impl nojson::DisplayJson
+where
+    F: Fn(&mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result,
+{
+    nojson::json(move |fmt| {
+        fmt.set_indent_size(0);
+        fmt.object(|fmt| f(fmt))?;
+        fmt.set_indent_size(2);
+        Ok(())
+    })
 }

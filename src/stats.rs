@@ -65,13 +65,24 @@ struct Stats {
 impl Stats {
     fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
         f.member(
-            "request",
+            "count",
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("success_count", self.response_ok_count)?;
-                    f.member("error_count", self.response_error_count)?;
-                    f.member("avg_size", self.avg_response_size)
+                    f.member("success", self.response_ok_count)?;
+                    f.member("error", self.response_error_count)
+                })?;
+                f.set_indent_size(2);
+                Ok(())
+            }),
+        )?;
+        f.member(
+            "avg_size",
+            nojson::json(|f| {
+                f.set_indent_size(0);
+                f.object(|f| {
+                    f.member("request", self.avg_request_size)?;
+                    f.member("response", self.avg_response_size)
                 })?;
                 f.set_indent_size(2);
                 Ok(())

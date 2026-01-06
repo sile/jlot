@@ -17,32 +17,17 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let count: bool = noargs::flag("count")
-        .doc("Include the `count` field in the resulting JSON object")
-        .take(args)
-        .is_present();
-    let bps: bool = noargs::flag("bps")
-        .doc("Include the `bps` field in the resulting JSON object")
-        .take(args)
-        .is_present();
-
     if args.metadata().help_mode {
         return Ok(false);
     }
 
-    run_stats(count, bps)?;
+    run_stats()?;
     Ok(true)
 }
 
-fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
+fn run_stats() -> orfail::Result<()> {
     let stdin = std::io::stdin();
     let mut stats = Stats::default();
-    if count {
-        stats.count = Some(Counter::default());
-    }
-    if bps {
-        stats.bps = Some(Bps::default());
-    }
 
     let reader = std::io::BufReader::new(stdin.lock());
     for line in reader.lines() {
@@ -57,12 +42,11 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
 
 #[derive(Debug, Default)]
 struct Stats {
-    request_count: usize,
     duration: Duration,
     max_concurrency: usize,
-    count: Option<Counter>,
+    count: Counter,
     rps: f64,
-    bps: Option<Bps>,
+    bps: Bps,
     latency: Latency,
 
     // NOTE: The following fields are only used for internal computation
@@ -109,15 +93,11 @@ impl nojson::DisplayJson for Stats {
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
 
             // old
-            if let Some(counter) = &self.count {
-                f.member("count", counter)?;
-            }
 
-            if let Some(bps) = &self.bps {
-                f.member("bps", bps)?;
-            }
+            f.member("count", &self.count)?;
+            f.member("bps", &self.bps)?;
 
-            f.member("latency", &self.latency)
+            Ok(())
         })
     }
 }
@@ -140,12 +120,9 @@ impl Stats {
 
         if self.duration > Duration::ZERO {
             let t = self.duration.as_secs_f64();
-            if let Some(bps) = &mut self.bps {
-                bps.incoming = (self.incoming_bytes * 8) as f64 / t;
-                bps.outgoing = (self.outgoing_bytes * 8) as f64 / t;
-            }
-
-            self.rps = self.request_count as f64 / t;
+            self.bps.incoming = (self.incoming_bytes * 8) as f64 / t;
+            self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / t;
+            self.rps = self.count.requests as f64 / t;
         }
 
         if !self.latencies.is_empty() {
@@ -183,15 +160,12 @@ impl Stats {
 
         self.handle_metadata(metadata, output)?;
 
-        self.request_count += 1;
-        if let Some(counter) = &mut self.count {
-            counter.requests += 1;
+        self.count.requests += 1;
 
-            if output.to_member("result")?.get().is_some() {
-                counter.responses.ok += 1;
-            } else {
-                counter.responses.error += 1;
-            }
+        if output.to_member("result")?.get().is_some() {
+            self.count.responses.ok += 1;
+        } else {
+            self.count.responses.error += 1;
         }
 
         Ok(())

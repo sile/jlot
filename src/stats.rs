@@ -77,7 +77,16 @@ impl Stats {
         f.member("request", ())?;
         f.member("response", ())?;
         f.member("concurrency", ())?;
-        f.member("latency", ())?;
+        f.member(
+            "latency",
+            nojson::object(|f| {
+                f.member("min", self.latency.min)?;
+                f.member("p25", self.latency.p25)?;
+                f.member("p50", self.latency.p50)?;
+                f.member("p75", self.latency.p75)?;
+                f.member("max", self.latency.max)
+            }),
+        )?;
         Ok(())
     }
 }

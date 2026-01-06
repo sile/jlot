@@ -97,20 +97,10 @@ impl Stats {
 impl nojson::DisplayJson for Stats {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
-            // - elapsed
-            // - rps
-            // - avg_latency
-            // - detail
-            //   - request { count, avg_size }
-            //   - response { ok_count, error_count, avg_size }
-            //   - concurrency
-            //   - latency {min, p25, p50, p75, max}
-
             f.member("elapsed", self.duration.as_secs_f64())?;
             f.member("rps", self.rps)?;
             f.member("avg_latency", self.latency_avg)?;
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
-
             Ok(())
         })
     }

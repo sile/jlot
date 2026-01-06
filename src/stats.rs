@@ -250,7 +250,7 @@ impl Stats {
 
         // NOTE: We will change the input JSON format to eliminate the need of this weird workaround in the near future
         let response_bytes =
-            output.as_raw_str().len() - (r#",\"metadata\":"#.len() + metadata.as_raw_str().len());
+            output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
         self.response_bytes += response_bytes as u64;
 
         Ok(())

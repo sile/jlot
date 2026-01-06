@@ -74,7 +74,7 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                             f.member("message", e.to_string())
                         }),
                     )?;
-                    f.member("id", ())
+                    f.member("id", ()) // null ID
                 });
                 writeln!(writer, "{response}")
             })

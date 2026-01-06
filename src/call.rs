@@ -24,6 +24,18 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
+    let concurrency: NonZeroUsize = noargs::opt("concurrency")
+        .short('c')
+        .ty("NUMBER")
+        .doc("Maximum number of concurrent calls")
+        .default("1")
+        .take(args)
+        .then(|o| o.value().parse())?;
+    let add_metadata: bool = noargs::flag("add-metadata")
+        .short('m')
+        .doc("Add metadata to each response object")
+        .take(args)
+        .is_present();
     let server_addr: ServerAddr = noargs::arg("<SERVER>")
         .doc("JSON-RPC server address or hostname")
         .example("127.0.0.1:8080")
@@ -44,18 +56,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         }
         addrs
     };
-    let concurrency: NonZeroUsize = noargs::opt("concurrency")
-        .short('c')
-        .ty("NUMBER")
-        .doc("Maximum number of concurrent calls")
-        .default("1")
-        .take(args)
-        .then(|o| o.value().parse())?;
-    let add_metadata: bool = noargs::flag("add-metadata")
-        .short('m')
-        .doc("Add metadata to each response object")
-        .take(args)
-        .is_present();
 
     if args.metadata().help_mode {
         return Ok(false);

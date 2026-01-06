@@ -43,7 +43,7 @@ $ jlot run-echo-server :9000
 
 Execute an RPC call in another terminal:
 ```console
-$ jlot req hello '["world"]' --id 2 | jlot call :9000 | jq .
+$ jlot req hello --params '["world"]' | jlot call :9000 | jq .
 {
   "jsonrpc": "2.0",
   "result": {

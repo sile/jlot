@@ -17,163 +17,212 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let count: bool = noargs::flag("count")
-        .doc("Include the `count` field in the resulting JSON object")
-        .take(args)
-        .is_present();
-    let bps: bool = noargs::flag("bps")
-        .doc("Include the `bps` field in the resulting JSON object")
-        .take(args)
-        .is_present();
-
     if args.metadata().help_mode {
         return Ok(false);
     }
 
-    run_stats(count, bps)?;
+    run_stats()?;
     Ok(true)
 }
 
-fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
+fn run_stats() -> orfail::Result<()> {
     let stdin = std::io::stdin();
     let mut stats = Stats::default();
-    if count {
-        stats.count = Some(Counter::default());
-    }
-    if bps {
-        stats.bps = Some(Bps::default());
-    }
 
-    let reader = std::io::BufReader::new(stdin.lock());
+    let reader = stdin.lock();
     for line in reader.lines() {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;
-        stats.handle_output2(json.value()).or_fail()?;
+        stats.handle_output(json.value()).or_fail()?;
     }
-    stats.finalize();
+
+    stats.latencies.sort_unstable();
+    stats.start_end_times.sort_unstable();
+
     println!("{}", nojson::Json(&stats));
     Ok(())
 }
 
 #[derive(Debug, Default)]
 struct Stats {
-    rpc_calls: usize,
-    duration: f64,
-    max_concurrency: usize,
-    count: Option<Counter>,
-    rps: f64,
-    bps: Option<Bps>,
-    latency: Latency,
-
-    // NOTE: The following fields are only used for internal computation
+    success_count: usize,
+    error_count: usize,
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
-    outgoing_bytes: u64,
-    incoming_bytes: u64,
+    request_bytes: u64,
+    response_bytes: u64,
+}
+
+impl Stats {
+    fn request_count(&self) -> usize {
+        self.success_count + self.error_count
+    }
+
+    fn calculate_duration(&self) -> Duration {
+        let min_start = self.start_end_times.iter().map(|(s, _)| *s).min();
+        let max_end = self.start_end_times.iter().map(|(_, e)| *e).max();
+
+        match (min_start, max_end) {
+            (Some(start), Some(end)) => end.saturating_sub(start),
+            _ => Duration::ZERO,
+        }
+    }
+
+    fn calculate_rps(&self, duration: Duration) -> usize {
+        let request_count = self.request_count();
+        if duration > Duration::ZERO {
+            let t = duration.as_secs_f64();
+            (request_count as f64 / t).round() as usize
+        } else {
+            0
+        }
+    }
+
+    fn calculate_avg_request_size(&self) -> f64 {
+        let request_count = self.request_count();
+        if request_count > 0 {
+            self.request_bytes as f64 / request_count as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn calculate_avg_response_size(&self) -> f64 {
+        let response_count = self.request_count();
+        if response_count > 0 {
+            self.response_bytes as f64 / response_count as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn calculate_latency_stats(&self) -> LatencyStats {
+        if self.latencies.is_empty() {
+            return LatencyStats::default();
+        }
+
+        let len = self.latencies.len();
+
+        LatencyStats {
+            min: self.latencies[0].as_secs_f64(),
+            p25: self.latencies[len / 4].as_secs_f64(),
+            p50: self.latencies[len / 2].as_secs_f64(),
+            p75: self.latencies[len * 3 / 4].as_secs_f64(),
+            max: self.latencies[len - 1].as_secs_f64(),
+            avg: (self.latencies.iter().sum::<Duration>() / len as u32).as_secs_f64(),
+        }
+    }
+
+    fn calculate_max_concurrency(&self) -> usize {
+        let mut max_concurrency = 0;
+        for i in 0..self.start_end_times.len() {
+            let (start, _) = self.start_end_times[i];
+            let concurrency = self.start_end_times[..i]
+                .iter()
+                .rev()
+                .take_while(|(_, end)| start < *end)
+                .count()
+                + 1;
+            max_concurrency = max_concurrency.max(concurrency);
+        }
+
+        max_concurrency
+    }
 }
 
 impl nojson::DisplayJson for Stats {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.set_indent_size(2);
+        f.set_spacing(true);
+
+        let duration = self.calculate_duration();
+        let rps = self.calculate_rps(duration);
+        let latency_stats = self.calculate_latency_stats();
+        let avg_request_size = self.calculate_avg_request_size();
+        let avg_response_size = self.calculate_avg_response_size();
+        let max_concurrency = self.calculate_max_concurrency();
+
         f.object(|f| {
-            f.member("rpc_calls", self.rpc_calls)?;
-            f.member("duration", self.duration)?;
-            f.member("max_concurrency", self.max_concurrency)?;
-
-            if let Some(counter) = &self.count {
-                f.member("count", counter)?;
-            }
-
-            f.member("rps", self.rps)?;
-
-            if let Some(bps) = &self.bps {
-                f.member("bps", bps)?;
-            }
-
-            f.member("latency", &self.latency)
+            f.member("elapsed_seconds", duration.as_secs_f64())?;
+            f.member("requests_per_second", rps)?;
+            f.member("avg_latency", latency_stats.avg)?;
+            f.member(
+                "detail",
+                nojson::object(|f| {
+                    self.fmt_detail(
+                        f,
+                        &latency_stats,
+                        avg_request_size,
+                        avg_response_size,
+                        max_concurrency,
+                    )
+                }),
+            )?;
+            Ok(())
         })
     }
 }
 
 impl Stats {
-    fn finalize(&mut self) {
-        self.duration = self
-            .start_end_times
-            .iter()
-            .map(|(_, end)| *end)
-            .max()
-            .unwrap_or_default()
-            .saturating_sub(
-                self.start_end_times
-                    .iter()
-                    .map(|(start, _)| *start)
-                    .min()
-                    .unwrap_or_default(),
-            )
-            .as_secs_f64();
-
-        if self.duration > 0.0 {
-            if let Some(bps) = &mut self.bps {
-                bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
-                bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
-            }
-
-            self.rps = self.rpc_calls as f64 / self.duration;
-        }
-
-        if !self.latencies.is_empty() {
-            self.latencies.sort();
-            self.latency.min = self.latencies.first().expect("unreachable").as_secs_f64();
-            self.latency.p25 = self.latencies[self.latencies.len() / 4].as_secs_f64();
-            self.latency.p50 = self.latencies[self.latencies.len() / 2].as_secs_f64();
-            self.latency.p75 = self.latencies[self.latencies.len() * 3 / 4].as_secs_f64();
-            self.latency.max = self.latencies.last().expect("unreachable").as_secs_f64();
-            self.latency.avg = (self.latencies.iter().sum::<Duration>()
-                / self.latencies.len() as u32)
-                .as_secs_f64();
-        }
-
-        self.start_end_times.sort();
-        for i in 0..self.start_end_times.len() {
-            let (start, _end) = self.start_end_times[i];
-            let concurrency = self.start_end_times[..i]
-                .iter()
-                .rev()
-                .take_while(|x| start < x.1)
-                .count()
-                + 1;
-            self.max_concurrency = self.max_concurrency.max(concurrency);
-        }
+    fn fmt_detail(
+        &self,
+        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
+        latency_stats: &LatencyStats,
+        avg_request_size: f64,
+        avg_response_size: f64,
+        max_concurrency: usize,
+    ) -> std::fmt::Result {
+        f.member(
+            "count",
+            no_indent_object(|f| {
+                f.member("success", self.success_count)?;
+                f.member("error", self.error_count)
+            }),
+        )?;
+        f.member(
+            "size",
+            no_indent_object(|f| {
+                f.member("request_avg_bytes", avg_request_size)?;
+                f.member("response_avg_bytes", avg_response_size)
+            }),
+        )?;
+        f.member(
+            "latency",
+            no_indent_object(|f| {
+                f.member("min", latency_stats.min)?;
+                f.member("p25", latency_stats.p25)?;
+                f.member("p50", latency_stats.p50)?;
+                f.member("p75", latency_stats.p75)?;
+                f.member("max", latency_stats.max)
+            }),
+        )?;
+        f.member(
+            "concurrency",
+            no_indent_object(|f| f.member("max", max_concurrency)),
+        )?;
+        Ok(())
     }
 
-    fn handle_output2(
+    fn handle_output(
         &mut self,
         output: nojson::RawJsonValue<'_, '_>,
     ) -> Result<(), nojson::JsonParseError> {
-        self.rpc_calls += 1;
+        let Some(metadata) = output.to_member("metadata")?.get() else {
+            return Ok(());
+        };
 
-        let metadata = output.to_member("metadata")?.get();
-        if let Some(metadata) = metadata {
-            self.handle_metadata2(metadata, output)?;
-        }
+        self.handle_metadata(metadata, output)?;
 
-        if let Some(counter) = &mut self.count {
-            counter.requests += 1;
-
-            if output.to_member("result")?.get().is_some() {
-                counter.responses.ok += 1;
-            } else {
-                counter.responses.error += 1;
-            }
-
-            if metadata.is_none() {
-                counter.missing_metadata_calls += 1;
-            }
+        if output.to_member("result")?.get().is_some() {
+            self.success_count += 1;
+        } else {
+            self.error_count += 1;
         }
 
         Ok(())
     }
 
-    fn handle_metadata2(
+    fn handle_metadata(
         &mut self,
         metadata: nojson::RawJsonValue<'_, '_>,
         output: nojson::RawJsonValue<'_, '_>,
@@ -186,6 +235,7 @@ impl Stats {
         );
         let end_time =
             Duration::from_micros(metadata.to_member("end_time_us")?.required()?.try_into()?);
+
         self.start_end_times.push((start_time, end_time));
         self.latencies.push(end_time.saturating_sub(start_time));
 
@@ -194,50 +244,19 @@ impl Stats {
             .required()?
             .as_raw_str()
             .len();
-        self.outgoing_bytes += request_bytes as u64;
+        self.request_bytes += request_bytes as u64;
 
+        // NOTE: We will change the input JSON format to eliminate the need of this weird workaround in the near future
         let response_bytes =
             output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
-        self.incoming_bytes += response_bytes as u64;
+        self.response_bytes += response_bytes as u64;
 
         Ok(())
     }
 }
 
 #[derive(Debug, Default)]
-struct Counter {
-    missing_metadata_calls: usize,
-    requests: usize,
-    responses: OkOrError,
-}
-
-impl nojson::DisplayJson for Counter {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("missing_metadata_calls", self.missing_metadata_calls)?;
-            f.member("requests", self.requests)?;
-            f.member("responses", &self.responses)
-        })
-    }
-}
-
-#[derive(Debug, Default)]
-struct OkOrError {
-    ok: usize,
-    error: usize,
-}
-
-impl nojson::DisplayJson for OkOrError {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("ok", self.ok)?;
-            f.member("error", self.error)
-        })
-    }
-}
-
-#[derive(Debug, Default)]
-struct Latency {
+struct LatencyStats {
     min: f64,
     p25: f64,
     p50: f64,
@@ -246,30 +265,14 @@ struct Latency {
     avg: f64,
 }
 
-impl nojson::DisplayJson for Latency {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("min", self.min)?;
-            f.member("p25", self.p25)?;
-            f.member("p50", self.p50)?;
-            f.member("p75", self.p75)?;
-            f.member("max", self.max)?;
-            f.member("avg", self.avg)
-        })
-    }
-}
-
-#[derive(Debug, Default)]
-struct Bps {
-    outgoing: f64,
-    incoming: f64,
-}
-
-impl nojson::DisplayJson for Bps {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("outgoing", self.outgoing)?;
-            f.member("incoming", self.incoming)
-        })
-    }
+fn no_indent_object<F>(f: F) -> impl nojson::DisplayJson
+where
+    F: Fn(&mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result,
+{
+    nojson::json(move |fmt| {
+        fmt.set_indent_size(0);
+        fmt.object(|fmt| f(fmt))?;
+        fmt.set_indent_size(2);
+        Ok(())
+    })
 }

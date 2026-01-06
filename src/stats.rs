@@ -273,3 +273,12 @@ impl nojson::DisplayJson for Bps {
         })
     }
 }
+
+// - elapsed
+// - rps
+// - avg_latency
+// - detail
+//   - request { count, avg_size }
+//   - response { success_count, error_count, avg_size }
+//   - concurrency { avg, max }
+//   - latency {min, p25, p50, p75, max}

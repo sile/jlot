@@ -72,9 +72,34 @@ struct Stats {
     incoming_bytes: u64,
 }
 
+impl Stats {
+    fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
+        f.member("request", ())?;
+        f.member("response", ())?;
+        f.member("concurrency", ())?;
+        f.member("latency", ())?;
+        Ok(())
+    }
+}
+
 impl nojson::DisplayJson for Stats {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
         f.object(|f| {
+            // - elapsed
+            // - rps
+            // - avg_latency
+            // - detail
+            //   - request { count, avg_size }
+            //   - response { success_count, error_count, avg_size }
+            //   - concurrency { avg, max }
+            //   - latency {min, p25, p50, p75, max}
+
+            f.member("elapsed", self.duration)?;
+            f.member("rps", self.rps)?;
+            f.member("avg_latency", self.latency.avg)?;
+            f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
+
+            // old
             f.member("rpc_calls", self.rpc_calls)?;
             f.member("duration", self.duration)?;
             f.member("max_concurrency", self.max_concurrency)?;
@@ -82,8 +107,6 @@ impl nojson::DisplayJson for Stats {
             if let Some(counter) = &self.count {
                 f.member("count", counter)?;
             }
-
-            f.member("rps", self.rps)?;
 
             if let Some(bps) = &self.bps {
                 f.member("bps", bps)?;
@@ -273,12 +296,3 @@ impl nojson::DisplayJson for Bps {
         })
     }
 }
-
-// - elapsed
-// - rps
-// - avg_latency
-// - detail
-//   - request { count, avg_size }
-//   - response { success_count, error_count, avg_size }
-//   - concurrency { avg, max }
-//   - latency {min, p25, p50, p75, max}

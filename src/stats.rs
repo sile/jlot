@@ -48,7 +48,7 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
     for line in reader.lines() {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;
-        stats.handle_output2(json.value()).or_fail()?;
+        stats.handle_output(json.value()).or_fail()?;
     }
     stats.finalize();
     println!("{}", nojson::Json(&stats));
@@ -173,7 +173,7 @@ impl Stats {
         }
     }
 
-    fn handle_output2(
+    fn handle_output(
         &mut self,
         output: nojson::RawJsonValue<'_, '_>,
     ) -> Result<(), nojson::JsonParseError> {
@@ -181,7 +181,7 @@ impl Stats {
 
         let metadata = output.to_member("metadata")?.get();
         if let Some(metadata) = metadata {
-            self.handle_metadata2(metadata, output)?;
+            self.handle_metadata(metadata, output)?;
         }
 
         if let Some(counter) = &mut self.count {
@@ -201,7 +201,7 @@ impl Stats {
         Ok(())
     }
 
-    fn handle_metadata2(
+    fn handle_metadata(
         &mut self,
         metadata: nojson::RawJsonValue<'_, '_>,
         output: nojson::RawJsonValue<'_, '_>,

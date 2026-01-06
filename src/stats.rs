@@ -147,7 +147,7 @@ impl nojson::DisplayJson for Stats {
         f.object(|f| {
             f.member("elapsed_seconds", duration.as_secs_f64())?;
             f.member("requests_per_second", rps)?;
-            f.member("avg_request_latency", latency_stats.avg)?;
+            f.member("avg_latency", latency_stats.avg)?;
             f.member(
                 "detail",
                 nojson::object(|f| {
@@ -187,12 +187,12 @@ impl Stats {
             }),
         )?;
         f.member(
-            "avg_size",
+            "size",
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("request", avg_request_size)?;
-                    f.member("response", avg_response_size)
+                    f.member("request_avg_bytes", avg_request_size)?;
+                    f.member("response_avg_bytes", avg_response_size)
                 })?;
                 f.set_indent_size(2);
                 Ok(())
@@ -213,7 +213,15 @@ impl Stats {
                 Ok(())
             }),
         )?;
-        f.member("concurrency", max_concurrency)?;
+        f.member(
+            "concurrency",
+            nojson::json(|f| {
+                f.set_indent_size(0);
+                f.object(|f| f.member("max", max_concurrency))?;
+                f.set_indent_size(2);
+                Ok(())
+            }),
+        )?;
         Ok(())
     }
 

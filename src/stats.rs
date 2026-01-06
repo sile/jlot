@@ -36,6 +36,9 @@ fn run_stats() -> orfail::Result<()> {
         stats.handle_output(json.value()).or_fail()?;
     }
 
+    stats.latencies.sort_unstable();
+    stats.start_end_times.sort_unstable();
+
     println!("{}", nojson::Json(&stats));
     Ok(())
 }
@@ -98,28 +101,23 @@ impl Stats {
             return LatencyStats::default();
         }
 
-        let mut sorted_latencies = self.latencies.clone();
-        sorted_latencies.sort_unstable();
-        let len = sorted_latencies.len();
+        let len = self.latencies.len();
 
         LatencyStats {
-            min: sorted_latencies[0].as_secs_f64(),
-            p25: sorted_latencies[len / 4].as_secs_f64(),
-            p50: sorted_latencies[len / 2].as_secs_f64(),
-            p75: sorted_latencies[len * 3 / 4].as_secs_f64(),
-            max: sorted_latencies[len - 1].as_secs_f64(),
-            avg: (sorted_latencies.iter().sum::<Duration>() / len as u32).as_secs_f64(),
+            min: self.latencies[0].as_secs_f64(),
+            p25: self.latencies[len / 4].as_secs_f64(),
+            p50: self.latencies[len / 2].as_secs_f64(),
+            p75: self.latencies[len * 3 / 4].as_secs_f64(),
+            max: self.latencies[len - 1].as_secs_f64(),
+            avg: (self.latencies.iter().sum::<Duration>() / len as u32).as_secs_f64(),
         }
     }
 
     fn calculate_max_concurrency(&self) -> usize {
-        let mut sorted_times = self.start_end_times.clone();
-        sorted_times.sort_unstable();
-
         let mut max_concurrency = 0;
-        for i in 0..sorted_times.len() {
-            let (start, _) = sorted_times[i];
-            let concurrency = sorted_times[..i]
+        for i in 0..self.start_end_times.len() {
+            let (start, _) = self.start_end_times[i];
+            let concurrency = self.start_end_times[..i]
                 .iter()
                 .rev()
                 .take_while(|(_, end)| start < *end)

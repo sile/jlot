@@ -44,31 +44,22 @@ fn run_stats() -> orfail::Result<()> {
 struct Stats {
     duration: Duration,
     max_concurrency: usize,
-
-    // Counter fields (flattened from Counter struct)
     request_count: usize,
     response_ok_count: usize,
     response_error_count: usize,
-
-    // Latency fields (flattened from Latency struct)
     latency_min: f64,
     latency_p25: f64,
     latency_p50: f64,
     latency_p75: f64,
     latency_max: f64,
     latency_avg: f64,
-
-    // Bps fields (flattened from Bps struct)
-    bps_outgoing: f64,
-    bps_incoming: f64,
-
+    bps_request: f64,
+    bps_response: f64,
     rps: f64,
-
-    // NOTE: The following fields are only used for internal computation
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
-    outgoing_bytes: u64,
-    incoming_bytes: u64,
+    request_bytes: u64,
+    response_bytes: u64,
 }
 
 impl Stats {
@@ -98,7 +89,7 @@ impl nojson::DisplayJson for Stats {
             // - avg_latency
             // - detail
             //   - request { count, avg_size }
-            //   - response { success_count, error_count, avg_size }
+            //   - response { ok_count, error_count, avg_size }
             //   - concurrency
             //   - latency {min, p25, p50, p75, max}
 
@@ -130,8 +121,8 @@ impl Stats {
 
         if self.duration > Duration::ZERO {
             let t = self.duration.as_secs_f64();
-            self.bps_incoming = (self.incoming_bytes * 8) as f64 / t;
-            self.bps_outgoing = (self.outgoing_bytes * 8) as f64 / t;
+            self.bps_response = (self.response_bytes * 8) as f64 / t;
+            self.bps_request = (self.request_bytes * 8) as f64 / t;
             self.rps = self.request_count as f64 / t;
         }
 
@@ -202,11 +193,11 @@ impl Stats {
             .required()?
             .as_raw_str()
             .len();
-        self.outgoing_bytes += request_bytes as u64;
+        self.request_bytes += request_bytes as u64;
 
         let response_bytes =
             output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
-        self.incoming_bytes += response_bytes as u64;
+        self.response_bytes += response_bytes as u64;
 
         Ok(())
     }

@@ -92,11 +92,6 @@ impl nojson::DisplayJson for Stats {
             f.member("avg_latency", self.latency.avg)?;
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
 
-            // old
-
-            f.member("count", &self.count)?;
-            f.member("bps", &self.bps)?;
-
             Ok(())
         })
     }
@@ -204,34 +199,14 @@ impl Stats {
 
 #[derive(Debug, Default)]
 struct Counter {
-    missing_metadata_calls: usize,
     requests: usize,
     responses: OkOrError,
-}
-
-impl nojson::DisplayJson for Counter {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("missing_metadata_calls", self.missing_metadata_calls)?;
-            f.member("requests", self.requests)?;
-            f.member("responses", &self.responses)
-        })
-    }
 }
 
 #[derive(Debug, Default)]
 struct OkOrError {
     ok: usize,
     error: usize,
-}
-
-impl nojson::DisplayJson for OkOrError {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("ok", self.ok)?;
-            f.member("error", self.error)
-        })
-    }
 }
 
 #[derive(Debug, Default)]
@@ -244,30 +219,8 @@ struct Latency {
     avg: f64,
 }
 
-impl nojson::DisplayJson for Latency {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("min", self.min)?;
-            f.member("p25", self.p25)?;
-            f.member("p50", self.p50)?;
-            f.member("p75", self.p75)?;
-            f.member("max", self.max)?;
-            f.member("avg", self.avg)
-        })
-    }
-}
-
 #[derive(Debug, Default)]
 struct Bps {
     outgoing: f64,
     incoming: f64,
-}
-
-impl nojson::DisplayJson for Bps {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.object(|f| {
-            f.member("outgoing", self.outgoing)?;
-            f.member("incoming", self.incoming)
-        })
-    }
 }

@@ -53,7 +53,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
                 f.member("params", params)?;
             }
             if !notification {
-                f.member("id", &id)?;
+                f.member("id", id)?;
             }
             Ok(())
         });

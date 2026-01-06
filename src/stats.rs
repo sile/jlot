@@ -177,13 +177,13 @@ impl Stats {
         &mut self,
         output: nojson::RawJsonValue<'_, '_>,
     ) -> Result<(), nojson::JsonParseError> {
+        let Some(metadata) = output.to_member("metadata")?.get() else {
+            return Ok(());
+        };
+
+        self.handle_metadata(metadata, output)?;
+
         self.request_count += 1;
-
-        let metadata = output.to_member("metadata")?.get();
-        if let Some(metadata) = metadata {
-            self.handle_metadata(metadata, output)?;
-        }
-
         if let Some(counter) = &mut self.count {
             counter.requests += 1;
 
@@ -191,10 +191,6 @@ impl Stats {
                 counter.responses.ok += 1;
             } else {
                 counter.responses.error += 1;
-            }
-
-            if metadata.is_none() {
-                counter.missing_metadata_calls += 1;
             }
         }
 

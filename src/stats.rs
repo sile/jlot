@@ -58,7 +58,7 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
 #[derive(Debug, Default)]
 struct Stats {
     request_count: usize,
-    duration: f64,
+    duration: Duration,
     max_concurrency: usize,
     count: Option<Counter>,
     rps: f64,
@@ -103,7 +103,7 @@ impl nojson::DisplayJson for Stats {
             //   - concurrency
             //   - latency {min, p25, p50, p75, max}
 
-            f.member("elapsed", self.duration)?;
+            f.member("elapsed", self.duration.as_secs_f64())?;
             f.member("rps", self.rps)?;
             f.member("avg_latency", self.latency.avg)?;
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
@@ -136,16 +136,16 @@ impl Stats {
                     .map(|(start, _)| *start)
                     .min()
                     .unwrap_or_default(),
-            )
-            .as_secs_f64();
+            );
 
-        if self.duration > 0.0 {
+        if self.duration > Duration::ZERO {
+            let t = self.duration.as_secs_f64();
             if let Some(bps) = &mut self.bps {
-                bps.incoming = (self.incoming_bytes * 8) as f64 / self.duration;
-                bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
+                bps.incoming = (self.incoming_bytes * 8) as f64 / t;
+                bps.outgoing = (self.outgoing_bytes * 8) as f64 / t;
             }
 
-            self.rps = self.request_count as f64 / self.duration;
+            self.rps = self.request_count as f64 / t;
         }
 
         if !self.latencies.is_empty() {

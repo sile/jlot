@@ -29,7 +29,7 @@ fn run_stats() -> orfail::Result<()> {
     let stdin = std::io::stdin();
     let mut stats = Stats::default();
 
-    let reader = std::io::BufReader::new(stdin.lock());
+    let reader = stdin.lock();
     for line in reader.lines() {
         let line = line.or_fail()?;
         let json = nojson::RawJson::parse(&line).or_fail()?;

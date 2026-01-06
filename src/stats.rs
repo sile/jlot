@@ -55,7 +55,7 @@ struct Stats {
     latency_avg: f64,
     avg_request_size: f64,
     avg_response_size: f64,
-    rps: f64,
+    rps: usize,
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
     request_bytes: u64,
@@ -69,19 +69,7 @@ impl Stats {
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("count", self.request_count)?;
-                    f.member("avg_size", self.avg_request_size)
-                })?;
-                f.set_indent_size(2);
-                Ok(())
-            }),
-        )?;
-        f.member(
-            "response",
-            nojson::json(|f| {
-                f.set_indent_size(0);
-                f.object(|f| {
-                    f.member("ok_count", self.response_ok_count)?;
+                    f.member("success_count", self.response_ok_count)?;
                     f.member("error_count", self.response_error_count)?;
                     f.member("avg_size", self.avg_response_size)
                 })?;
@@ -115,9 +103,9 @@ impl nojson::DisplayJson for Stats {
         f.set_spacing(true);
 
         f.object(|f| {
-            f.member("elapsed", self.duration.as_secs_f64())?;
-            f.member("rps", self.rps)?;
-            f.member("avg_latency", self.latency_avg)?;
+            f.member("elapsed_seconds", self.duration.as_secs_f64())?;
+            f.member("requests_per_second", self.rps)?;
+            f.member("avg_request_latency", self.latency_avg)?;
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
             Ok(())
         })
@@ -146,7 +134,7 @@ impl Stats {
 
         if self.duration > Duration::ZERO {
             let t = self.duration.as_secs_f64();
-            self.rps = self.request_count as f64 / t;
+            self.rps = (self.request_count as f64 / t).round() as usize;
         }
 
         if self.request_count > 0 {

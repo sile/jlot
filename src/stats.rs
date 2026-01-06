@@ -51,7 +51,7 @@ struct Stats {
 }
 
 impl Stats {
-    fn response_count(&self) -> usize {
+    fn request_count(&self) -> usize {
         self.success_count + self.error_count
     }
 
@@ -66,7 +66,7 @@ impl Stats {
     }
 
     fn calculate_rps(&self, duration: Duration) -> usize {
-        let request_count = self.response_count();
+        let request_count = self.request_count();
         if duration > Duration::ZERO {
             let t = duration.as_secs_f64();
             (request_count as f64 / t).round() as usize
@@ -76,7 +76,7 @@ impl Stats {
     }
 
     fn calculate_avg_request_size(&self) -> f64 {
-        let request_count = self.response_count();
+        let request_count = self.request_count();
         if request_count > 0 {
             self.request_bytes as f64 / request_count as f64
         } else {
@@ -85,7 +85,7 @@ impl Stats {
     }
 
     fn calculate_avg_response_size(&self) -> f64 {
-        let response_count = self.response_count();
+        let response_count = self.request_count();
         if response_count > 0 {
             self.response_bytes as f64 / response_count as f64
         } else {

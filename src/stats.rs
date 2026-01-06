@@ -53,8 +53,8 @@ struct Stats {
     latency_p75: f64,
     latency_max: f64,
     latency_avg: f64,
-    bps_request: f64,
-    bps_response: f64,
+    avg_request_size: f64,
+    avg_response_size: f64,
     rps: f64,
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
@@ -64,8 +64,21 @@ struct Stats {
 
 impl Stats {
     fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
-        f.member("request", ())?;
-        f.member("response", ())?;
+        f.member(
+            "request",
+            nojson::object(|f| {
+                f.member("count", self.request_count)?;
+                f.member("avg_size", self.avg_request_size)
+            }),
+        )?;
+        f.member(
+            "response",
+            nojson::object(|f| {
+                f.member("ok_count", self.response_ok_count)?;
+                f.member("error_count", self.response_error_count)?;
+                f.member("avg_size", self.avg_response_size)
+            }),
+        )?;
         f.member("concurrency", self.max_concurrency)?;
         f.member(
             "latency",
@@ -104,6 +117,10 @@ impl nojson::DisplayJson for Stats {
 }
 
 impl Stats {
+    fn response_count(&self) -> usize {
+        self.response_ok_count + self.response_error_count
+    }
+
     fn finalize(&mut self) {
         self.duration = self
             .start_end_times
@@ -121,9 +138,15 @@ impl Stats {
 
         if self.duration > Duration::ZERO {
             let t = self.duration.as_secs_f64();
-            self.bps_response = (self.response_bytes * 8) as f64 / t;
-            self.bps_request = (self.request_bytes * 8) as f64 / t;
             self.rps = self.request_count as f64 / t;
+        }
+
+        if self.request_count > 0 {
+            self.avg_request_size = self.request_bytes as f64 / self.request_count as f64;
+        }
+
+        if self.response_count() > 0 {
+            self.avg_response_size = self.response_bytes as f64 / self.response_count() as f64;
         }
 
         if !self.latencies.is_empty() {
@@ -196,7 +219,7 @@ impl Stats {
         self.request_bytes += request_bytes as u64;
 
         let response_bytes =
-            output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
+            output.as_raw_str().len() - (r#",\"metadata\":"#.len() + metadata.as_raw_str().len());
         self.response_bytes += response_bytes as u64;
 
         Ok(())

@@ -42,9 +42,8 @@ fn run_stats() -> orfail::Result<()> {
 
 #[derive(Debug, Default)]
 struct Stats {
-    request_count: usize,
-    response_ok_count: usize,
-    response_error_count: usize,
+    success_count: usize,
+    error_count: usize,
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
     request_bytes: u64,
@@ -53,7 +52,7 @@ struct Stats {
 
 impl Stats {
     fn response_count(&self) -> usize {
-        self.response_ok_count + self.response_error_count
+        self.success_count + self.error_count
     }
 
     fn calculate_duration(&self) -> Duration {
@@ -67,17 +66,19 @@ impl Stats {
     }
 
     fn calculate_rps(&self, duration: Duration) -> usize {
+        let request_count = self.response_count();
         if duration > Duration::ZERO {
             let t = duration.as_secs_f64();
-            (self.request_count as f64 / t).round() as usize
+            (request_count as f64 / t).round() as usize
         } else {
             0
         }
     }
 
     fn calculate_avg_request_size(&self) -> f64 {
-        if self.request_count > 0 {
-            self.request_bytes as f64 / self.request_count as f64
+        let request_count = self.response_count();
+        if request_count > 0 {
+            self.request_bytes as f64 / request_count as f64
         } else {
             0.0
         }
@@ -178,8 +179,8 @@ impl Stats {
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("success", self.response_ok_count)?;
-                    f.member("error", self.response_error_count)
+                    f.member("success", self.success_count)?;
+                    f.member("error", self.error_count)
                 })?;
                 f.set_indent_size(2);
                 Ok(())
@@ -225,12 +226,11 @@ impl Stats {
         };
 
         self.handle_metadata(metadata, output)?;
-        self.request_count += 1;
 
         if output.to_member("result")?.get().is_some() {
-            self.response_ok_count += 1;
+            self.success_count += 1;
         } else {
-            self.response_error_count += 1;
+            self.error_count += 1;
         }
 
         Ok(())

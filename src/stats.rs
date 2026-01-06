@@ -57,7 +57,7 @@ fn run_stats(count: bool, bps: bool) -> orfail::Result<()> {
 
 #[derive(Debug, Default)]
 struct Stats {
-    rpc_calls: usize,
+    request_count: usize,
     duration: f64,
     max_concurrency: usize,
     count: Option<Counter>,
@@ -76,7 +76,7 @@ impl Stats {
     fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
         f.member("request", ())?;
         f.member("response", ())?;
-        f.member("concurrency", ())?;
+        f.member("concurrency", self.max_concurrency)?;
         f.member(
             "latency",
             nojson::object(|f| {
@@ -100,7 +100,7 @@ impl nojson::DisplayJson for Stats {
             // - detail
             //   - request { count, avg_size }
             //   - response { success_count, error_count, avg_size }
-            //   - concurrency { avg, max }
+            //   - concurrency
             //   - latency {min, p25, p50, p75, max}
 
             f.member("elapsed", self.duration)?;
@@ -109,10 +109,6 @@ impl nojson::DisplayJson for Stats {
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
 
             // old
-            f.member("rpc_calls", self.rpc_calls)?;
-            f.member("duration", self.duration)?;
-            f.member("max_concurrency", self.max_concurrency)?;
-
             if let Some(counter) = &self.count {
                 f.member("count", counter)?;
             }
@@ -149,7 +145,7 @@ impl Stats {
                 bps.outgoing = (self.outgoing_bytes * 8) as f64 / self.duration;
             }
 
-            self.rps = self.rpc_calls as f64 / self.duration;
+            self.rps = self.request_count as f64 / self.duration;
         }
 
         if !self.latencies.is_empty() {
@@ -181,7 +177,7 @@ impl Stats {
         &mut self,
         output: nojson::RawJsonValue<'_, '_>,
     ) -> Result<(), nojson::JsonParseError> {
-        self.rpc_calls += 1;
+        self.request_count += 1;
 
         let metadata = output.to_member("metadata")?.get();
         if let Some(metadata) = metadata {

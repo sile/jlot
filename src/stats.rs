@@ -35,27 +35,16 @@ fn run_stats() -> orfail::Result<()> {
         let json = nojson::RawJson::parse(&line).or_fail()?;
         stats.handle_output(json.value()).or_fail()?;
     }
-    stats.finalize();
+
     println!("{}", nojson::Json(&stats));
     Ok(())
 }
 
 #[derive(Debug, Default)]
 struct Stats {
-    duration: Duration,
-    max_concurrency: usize,
     request_count: usize,
     response_ok_count: usize,
     response_error_count: usize,
-    latency_min: f64,
-    latency_p25: f64,
-    latency_p50: f64,
-    latency_p75: f64,
-    latency_max: f64,
-    latency_avg: f64,
-    avg_request_size: f64,
-    avg_response_size: f64,
-    rps: usize,
     start_end_times: Vec<(Duration, Duration)>,
     latencies: Vec<Duration>,
     request_bytes: u64,
@@ -63,7 +52,127 @@ struct Stats {
 }
 
 impl Stats {
-    fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
+    fn response_count(&self) -> usize {
+        self.response_ok_count + self.response_error_count
+    }
+
+    fn calculate_duration(&self) -> Duration {
+        let min_start = self.start_end_times.iter().map(|(s, _)| *s).min();
+        let max_end = self.start_end_times.iter().map(|(_, e)| *e).max();
+
+        match (min_start, max_end) {
+            (Some(start), Some(end)) => end.saturating_sub(start),
+            _ => Duration::ZERO,
+        }
+    }
+
+    fn calculate_rps(&self, duration: Duration) -> usize {
+        if duration > Duration::ZERO {
+            let t = duration.as_secs_f64();
+            (self.request_count as f64 / t).round() as usize
+        } else {
+            0
+        }
+    }
+
+    fn calculate_avg_request_size(&self) -> f64 {
+        if self.request_count > 0 {
+            self.request_bytes as f64 / self.request_count as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn calculate_avg_response_size(&self) -> f64 {
+        let response_count = self.response_count();
+        if response_count > 0 {
+            self.response_bytes as f64 / response_count as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn calculate_latency_stats(&self) -> LatencyStats {
+        if self.latencies.is_empty() {
+            return LatencyStats::default();
+        }
+
+        let mut sorted_latencies = self.latencies.clone();
+        sorted_latencies.sort_unstable();
+        let len = sorted_latencies.len();
+
+        LatencyStats {
+            min: sorted_latencies[0].as_secs_f64(),
+            p25: sorted_latencies[len / 4].as_secs_f64(),
+            p50: sorted_latencies[len / 2].as_secs_f64(),
+            p75: sorted_latencies[len * 3 / 4].as_secs_f64(),
+            max: sorted_latencies[len - 1].as_secs_f64(),
+            avg: (sorted_latencies.iter().sum::<Duration>() / len as u32).as_secs_f64(),
+        }
+    }
+
+    fn calculate_max_concurrency(&self) -> usize {
+        let mut sorted_times = self.start_end_times.clone();
+        sorted_times.sort_unstable();
+
+        let mut max_concurrency = 0;
+        for i in 0..sorted_times.len() {
+            let (start, _) = sorted_times[i];
+            let concurrency = sorted_times[..i]
+                .iter()
+                .rev()
+                .take_while(|(_, end)| start < *end)
+                .count()
+                + 1;
+            max_concurrency = max_concurrency.max(concurrency);
+        }
+
+        max_concurrency
+    }
+}
+
+impl nojson::DisplayJson for Stats {
+    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.set_indent_size(2);
+        f.set_spacing(true);
+
+        let duration = self.calculate_duration();
+        let rps = self.calculate_rps(duration);
+        let latency_stats = self.calculate_latency_stats();
+        let avg_request_size = self.calculate_avg_request_size();
+        let avg_response_size = self.calculate_avg_response_size();
+        let max_concurrency = self.calculate_max_concurrency();
+
+        f.object(|f| {
+            f.member("elapsed_seconds", duration.as_secs_f64())?;
+            f.member("requests_per_second", rps)?;
+            f.member("avg_request_latency", latency_stats.avg)?;
+            f.member(
+                "detail",
+                nojson::object(|f| {
+                    self.fmt_detail(
+                        f,
+                        &latency_stats,
+                        avg_request_size,
+                        avg_response_size,
+                        max_concurrency,
+                    )
+                }),
+            )?;
+            Ok(())
+        })
+    }
+}
+
+impl Stats {
+    fn fmt_detail(
+        &self,
+        f: &mut nojson::JsonObjectFormatter<'_, '_, '_>,
+        latency_stats: &LatencyStats,
+        avg_request_size: f64,
+        avg_response_size: f64,
+        max_concurrency: usize,
+    ) -> std::fmt::Result {
         f.member(
             "count",
             nojson::json(|f| {
@@ -81,8 +190,8 @@ impl Stats {
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("request", self.avg_request_size)?;
-                    f.member("response", self.avg_response_size)
+                    f.member("request", avg_request_size)?;
+                    f.member("response", avg_response_size)
                 })?;
                 f.set_indent_size(2);
                 Ok(())
@@ -93,92 +202,18 @@ impl Stats {
             nojson::json(|f| {
                 f.set_indent_size(0);
                 f.object(|f| {
-                    f.member("min", self.latency_min)?;
-                    f.member("p25", self.latency_p25)?;
-                    f.member("p50", self.latency_p50)?;
-                    f.member("p75", self.latency_p75)?;
-                    f.member("max", self.latency_max)
+                    f.member("min", latency_stats.min)?;
+                    f.member("p25", latency_stats.p25)?;
+                    f.member("p50", latency_stats.p50)?;
+                    f.member("p75", latency_stats.p75)?;
+                    f.member("max", latency_stats.max)
                 })?;
                 f.set_indent_size(2);
                 Ok(())
             }),
         )?;
-        f.member("concurrency", self.max_concurrency)?;
+        f.member("concurrency", max_concurrency)?;
         Ok(())
-    }
-}
-
-impl nojson::DisplayJson for Stats {
-    fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
-        f.set_indent_size(2);
-        f.set_spacing(true);
-
-        f.object(|f| {
-            f.member("elapsed_seconds", self.duration.as_secs_f64())?;
-            f.member("requests_per_second", self.rps)?;
-            f.member("avg_request_latency", self.latency_avg)?;
-            f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
-            Ok(())
-        })
-    }
-}
-
-impl Stats {
-    fn response_count(&self) -> usize {
-        self.response_ok_count + self.response_error_count
-    }
-
-    fn finalize(&mut self) {
-        self.duration = self
-            .start_end_times
-            .iter()
-            .map(|(_, end)| *end)
-            .max()
-            .unwrap_or_default()
-            .saturating_sub(
-                self.start_end_times
-                    .iter()
-                    .map(|(start, _)| *start)
-                    .min()
-                    .unwrap_or_default(),
-            );
-
-        if self.duration > Duration::ZERO {
-            let t = self.duration.as_secs_f64();
-            self.rps = (self.request_count as f64 / t).round() as usize;
-        }
-
-        if self.request_count > 0 {
-            self.avg_request_size = self.request_bytes as f64 / self.request_count as f64;
-        }
-
-        if self.response_count() > 0 {
-            self.avg_response_size = self.response_bytes as f64 / self.response_count() as f64;
-        }
-
-        if !self.latencies.is_empty() {
-            self.latencies.sort();
-            self.latency_min = self.latencies.first().expect("unreachable").as_secs_f64();
-            self.latency_p25 = self.latencies[self.latencies.len() / 4].as_secs_f64();
-            self.latency_p50 = self.latencies[self.latencies.len() / 2].as_secs_f64();
-            self.latency_p75 = self.latencies[self.latencies.len() * 3 / 4].as_secs_f64();
-            self.latency_max = self.latencies.last().expect("unreachable").as_secs_f64();
-            self.latency_avg = (self.latencies.iter().sum::<Duration>()
-                / self.latencies.len() as u32)
-                .as_secs_f64();
-        }
-
-        self.start_end_times.sort();
-        for i in 0..self.start_end_times.len() {
-            let (start, _end) = self.start_end_times[i];
-            let concurrency = self.start_end_times[..i]
-                .iter()
-                .rev()
-                .take_while(|x| start < x.1)
-                .count()
-                + 1;
-            self.max_concurrency = self.max_concurrency.max(concurrency);
-        }
     }
 
     fn handle_output(
@@ -190,7 +225,6 @@ impl Stats {
         };
 
         self.handle_metadata(metadata, output)?;
-
         self.request_count += 1;
 
         if output.to_member("result")?.get().is_some() {
@@ -215,6 +249,7 @@ impl Stats {
         );
         let end_time =
             Duration::from_micros(metadata.to_member("end_time_us")?.required()?.try_into()?);
+
         self.start_end_times.push((start_time, end_time));
         self.latencies.push(end_time.saturating_sub(start_time));
 
@@ -231,4 +266,14 @@ impl Stats {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Default)]
+struct LatencyStats {
+    min: f64,
+    p25: f64,
+    p50: f64,
+    p75: f64,
+    max: f64,
+    avg: f64,
 }

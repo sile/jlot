@@ -66,36 +66,54 @@ impl Stats {
     fn fmt_detail(&self, f: &mut nojson::JsonObjectFormatter<'_, '_, '_>) -> std::fmt::Result {
         f.member(
             "request",
-            nojson::object(|f| {
-                f.member("count", self.request_count)?;
-                f.member("avg_size", self.avg_request_size)
+            nojson::json(|f| {
+                f.set_indent_size(0);
+                f.object(|f| {
+                    f.member("count", self.request_count)?;
+                    f.member("avg_size", self.avg_request_size)
+                })?;
+                f.set_indent_size(2);
+                Ok(())
             }),
         )?;
         f.member(
             "response",
-            nojson::object(|f| {
-                f.member("ok_count", self.response_ok_count)?;
-                f.member("error_count", self.response_error_count)?;
-                f.member("avg_size", self.avg_response_size)
+            nojson::json(|f| {
+                f.set_indent_size(0);
+                f.object(|f| {
+                    f.member("ok_count", self.response_ok_count)?;
+                    f.member("error_count", self.response_error_count)?;
+                    f.member("avg_size", self.avg_response_size)
+                })?;
+                f.set_indent_size(2);
+                Ok(())
+            }),
+        )?;
+        f.member(
+            "latency",
+            nojson::json(|f| {
+                f.set_indent_size(0);
+                f.object(|f| {
+                    f.member("min", self.latency_min)?;
+                    f.member("p25", self.latency_p25)?;
+                    f.member("p50", self.latency_p50)?;
+                    f.member("p75", self.latency_p75)?;
+                    f.member("max", self.latency_max)
+                })?;
+                f.set_indent_size(2);
+                Ok(())
             }),
         )?;
         f.member("concurrency", self.max_concurrency)?;
-        f.member(
-            "latency",
-            nojson::object(|f| {
-                f.member("min", self.latency_min)?;
-                f.member("p25", self.latency_p25)?;
-                f.member("p50", self.latency_p50)?;
-                f.member("p75", self.latency_p75)?;
-                f.member("max", self.latency_max)
-            }),
-        )?;
         Ok(())
     }
 }
 
 impl nojson::DisplayJson for Stats {
     fn fmt(&self, f: &mut nojson::JsonFormatter<'_, '_>) -> std::fmt::Result {
+        f.set_indent_size(2);
+        f.set_spacing(true);
+
         f.object(|f| {
             f.member("elapsed", self.duration.as_secs_f64())?;
             f.member("rps", self.rps)?;

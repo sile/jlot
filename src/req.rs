@@ -9,21 +9,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let id: nojson::RawJsonOwned = noargs::opt("id")
-        .short('i')
-        .ty("INTEGER | STRING")
-        .doc("Request ID")
-        .default("0")
-        .take(args)
-        .then(|o| {
-            let val = o.value();
-            let json_text = if val.parse::<i64>().is_ok() {
-                val.to_owned()
-            } else {
-                format!("{:?}", val)
-            };
-            nojson::RawJsonOwned::parse(json_text)
-        })?;
     let notification: bool = noargs::flag("notification")
         .short('n')
         .doc("Exclude the \"id\" field from the resulting JSON object")
@@ -60,18 +45,18 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     }
 
     // Generate and output requests
-    let json = nojson::object(|f| {
-        f.member("jsonrpc", "2.0")?;
-        f.member("method", &method)?;
-        if let Some(params) = &params {
-            f.member("params", params)?;
-        }
-        if !notification {
-            f.member("id", &id)?;
-        }
-        Ok(())
-    });
-    for _ in 0..count.get() {
+    for id in 0..count.get() {
+        let json = nojson::object(|f| {
+            f.member("jsonrpc", "2.0")?;
+            f.member("method", &method)?;
+            if let Some(params) = &params {
+                f.member("params", params)?;
+            }
+            if !notification {
+                f.member("id", &id)?;
+            }
+            Ok(())
+        });
         println!("{json}");
     }
 

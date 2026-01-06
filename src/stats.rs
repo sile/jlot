@@ -44,10 +44,25 @@ fn run_stats() -> orfail::Result<()> {
 struct Stats {
     duration: Duration,
     max_concurrency: usize,
-    count: Counter,
+
+    // Counter fields (flattened from Counter struct)
+    request_count: usize,
+    response_ok_count: usize,
+    response_error_count: usize,
+
+    // Latency fields (flattened from Latency struct)
+    latency_min: f64,
+    latency_p25: f64,
+    latency_p50: f64,
+    latency_p75: f64,
+    latency_max: f64,
+    latency_avg: f64,
+
+    // Bps fields (flattened from Bps struct)
+    bps_outgoing: f64,
+    bps_incoming: f64,
+
     rps: f64,
-    bps: Bps,
-    latency: Latency,
 
     // NOTE: The following fields are only used for internal computation
     start_end_times: Vec<(Duration, Duration)>,
@@ -64,11 +79,11 @@ impl Stats {
         f.member(
             "latency",
             nojson::object(|f| {
-                f.member("min", self.latency.min)?;
-                f.member("p25", self.latency.p25)?;
-                f.member("p50", self.latency.p50)?;
-                f.member("p75", self.latency.p75)?;
-                f.member("max", self.latency.max)
+                f.member("min", self.latency_min)?;
+                f.member("p25", self.latency_p25)?;
+                f.member("p50", self.latency_p50)?;
+                f.member("p75", self.latency_p75)?;
+                f.member("max", self.latency_max)
             }),
         )?;
         Ok(())
@@ -89,7 +104,7 @@ impl nojson::DisplayJson for Stats {
 
             f.member("elapsed", self.duration.as_secs_f64())?;
             f.member("rps", self.rps)?;
-            f.member("avg_latency", self.latency.avg)?;
+            f.member("avg_latency", self.latency_avg)?;
             f.member("detail", nojson::object(|f| self.fmt_detail(f)))?;
 
             Ok(())
@@ -115,19 +130,19 @@ impl Stats {
 
         if self.duration > Duration::ZERO {
             let t = self.duration.as_secs_f64();
-            self.bps.incoming = (self.incoming_bytes * 8) as f64 / t;
-            self.bps.outgoing = (self.outgoing_bytes * 8) as f64 / t;
-            self.rps = self.count.requests as f64 / t;
+            self.bps_incoming = (self.incoming_bytes * 8) as f64 / t;
+            self.bps_outgoing = (self.outgoing_bytes * 8) as f64 / t;
+            self.rps = self.request_count as f64 / t;
         }
 
         if !self.latencies.is_empty() {
             self.latencies.sort();
-            self.latency.min = self.latencies.first().expect("unreachable").as_secs_f64();
-            self.latency.p25 = self.latencies[self.latencies.len() / 4].as_secs_f64();
-            self.latency.p50 = self.latencies[self.latencies.len() / 2].as_secs_f64();
-            self.latency.p75 = self.latencies[self.latencies.len() * 3 / 4].as_secs_f64();
-            self.latency.max = self.latencies.last().expect("unreachable").as_secs_f64();
-            self.latency.avg = (self.latencies.iter().sum::<Duration>()
+            self.latency_min = self.latencies.first().expect("unreachable").as_secs_f64();
+            self.latency_p25 = self.latencies[self.latencies.len() / 4].as_secs_f64();
+            self.latency_p50 = self.latencies[self.latencies.len() / 2].as_secs_f64();
+            self.latency_p75 = self.latencies[self.latencies.len() * 3 / 4].as_secs_f64();
+            self.latency_max = self.latencies.last().expect("unreachable").as_secs_f64();
+            self.latency_avg = (self.latencies.iter().sum::<Duration>()
                 / self.latencies.len() as u32)
                 .as_secs_f64();
         }
@@ -155,12 +170,12 @@ impl Stats {
 
         self.handle_metadata(metadata, output)?;
 
-        self.count.requests += 1;
+        self.request_count += 1;
 
         if output.to_member("result")?.get().is_some() {
-            self.count.responses.ok += 1;
+            self.response_ok_count += 1;
         } else {
-            self.count.responses.error += 1;
+            self.response_error_count += 1;
         }
 
         Ok(())
@@ -195,32 +210,4 @@ impl Stats {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Default)]
-struct Counter {
-    requests: usize,
-    responses: OkOrError,
-}
-
-#[derive(Debug, Default)]
-struct OkOrError {
-    ok: usize,
-    error: usize,
-}
-
-#[derive(Debug, Default)]
-struct Latency {
-    min: f64,
-    p25: f64,
-    p50: f64,
-    p75: f64,
-    max: f64,
-    avg: f64,
-}
-
-#[derive(Debug, Default)]
-struct Bps {
-    outgoing: f64,
-    incoming: f64,
 }

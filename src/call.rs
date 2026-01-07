@@ -55,7 +55,11 @@ impl CallCommand {
 
             if request.id.is_some() {
                 let mut response_line = String::new();
-                rpc_reader.read_line(&mut response_line).or_fail()?;
+                let bytes_read = rpc_reader.read_line(&mut response_line).or_fail()?;
+                (bytes_read > 0).or_fail_with(|()| {
+                    "Faied to receive RPC response: unexpected EOF".to_owned()
+                })?;
+
                 let response = Response::parse(response_line).or_fail()?;
                 writeln!(output_writer, "{}", response.json).or_fail()?;
             }

@@ -38,29 +38,29 @@ impl CallCommand {
     fn run(self) -> orfail::Result<()> {
         let stream = self.connect_to_server().or_fail()?;
         let stdin = std::io::stdin();
-        let reader = std::io::BufReader::new(stdin.lock());
+        let input_reader = std::io::BufReader::new(stdin.lock());
         let stdout = std::io::stdout();
-        let mut writer = std::io::BufWriter::new(stdout.lock());
+        let mut output_writer = std::io::BufWriter::new(stdout.lock());
 
-        let mut runner = ClientRunner {
-            writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
-            reader: std::io::BufReader::new(stream),
-        };
+        let mut rpc_writer = std::io::BufWriter::new(stream.try_clone().or_fail()?);
+        let mut rpc_reader = std::io::BufReader::new(stream);
 
-        for line in reader.lines() {
+        for line in input_reader.lines() {
             let line = line.or_fail()?;
             let request = Request::parse(line).or_fail()?;
-            let input = Input::new(request);
 
-            runner.send_request(&input).or_fail()?;
+            writeln!(rpc_writer, "{}", request.json).or_fail()?;
+            rpc_writer.flush().or_fail()?;
 
-            if !input.is_notification {
-                let response = runner.recv_response().or_fail()?;
-                writeln!(writer, "{}", response.json).or_fail()?;
+            if request.id.is_some() {
+                let mut response_line = String::new();
+                rpc_reader.read_line(&mut response_line).or_fail()?;
+                let response = Response::parse(response_line).or_fail()?;
+                writeln!(output_writer, "{}", response.json).or_fail()?;
             }
         }
 
-        writer.flush().or_fail()?;
+        output_writer.flush().or_fail()?;
         Ok(())
     }
 
@@ -69,40 +69,5 @@ impl CallCommand {
             .or_fail_with(|e| format!("Failed to connect to '{}': {e}", self.server_addr.0))?;
         stream.set_nodelay(true).or_fail()?;
         Ok(stream)
-    }
-}
-
-struct ClientRunner {
-    writer: std::io::BufWriter<TcpStream>,
-    reader: std::io::BufReader<TcpStream>,
-}
-
-impl ClientRunner {
-    fn send_request(&mut self, input: &Input) -> orfail::Result<()> {
-        writeln!(self.writer, "{}", input.request.json).or_fail()?;
-        self.writer.flush().or_fail()?;
-        Ok(())
-    }
-
-    fn recv_response(&mut self) -> orfail::Result<Response> {
-        let mut response_line = String::new();
-        self.reader.read_line(&mut response_line).or_fail()?;
-        Response::parse(response_line).or_fail()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Input {
-    request: Request,
-    is_notification: bool,
-}
-
-impl Input {
-    fn new(request: Request) -> Self {
-        let is_notification = request.id.is_none();
-        Self {
-            request,
-            is_notification,
-        }
     }
 }

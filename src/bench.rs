@@ -1,5 +1,6 @@
 use std::io::{BufRead, Write};
 use std::net::TcpStream;
+use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
@@ -9,6 +10,14 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
         return Ok(false);
     }
+
+    let concurrency: NonZeroUsize = noargs::opt("concurrency")
+        .short('c')
+        .ty("INTEGER")
+        .doc("Number of concurrent requests")
+        .default("1")
+        .take(args)
+        .then(|o| o.value().parse())?;
 
     let server_addr: ServerAddr = noargs::arg("<SERVER>")
         .doc("JSON-RPC server address or hostname")
@@ -20,17 +29,17 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let call_command = CallCommand { server_addr };
-    call_command.run().or_fail()?;
+    let command = BenchCommand { server_addr };
+    command.run().or_fail()?;
 
     Ok(true)
 }
 
-struct CallCommand {
+struct BenchCommand {
     server_addr: ServerAddr,
 }
 
-impl CallCommand {
+impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
         let stream = self.connect_to_server().or_fail()?;
 

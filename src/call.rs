@@ -37,6 +37,7 @@ struct CallCommand {
 impl CallCommand {
     fn run(self) -> orfail::Result<()> {
         let stream = self.connect_to_server().or_fail()?;
+
         let stdin = std::io::stdin();
         let input_reader = std::io::BufReader::new(stdin.lock());
         let stdout = std::io::stdout();

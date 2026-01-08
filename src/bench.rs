@@ -172,7 +172,13 @@ impl RpcChannel {
         self.requests.insert(request.id.clone().or_fail()?, request);
 
         if needs_writable {
-            todo!()
+            poll.registry()
+                .reregister(
+                    &mut self.stream,
+                    self.token,
+                    mio::Interest::READABLE | mio::Interest::WRITABLE,
+                )
+                .or_fail()?;
         }
 
         Ok(())

@@ -1,9 +1,9 @@
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
-use crate::types::{Request, ServerAddr};
+use crate::types::{Request, Response, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
@@ -71,7 +71,85 @@ impl BenchCommand {
                 ongoing_requests += 1;
             }
 
-            //
+            let mut events = mio::Events::with_capacity(128);
+            poll.poll(&mut events, None).or_fail()?;
+
+            for event in events.iter() {
+                let i = event.token().0;
+                let channel = &mut channels[i];
+
+                if event.is_writable() {
+                    // Send buffered requests
+                    while channel.send_buf_offset < channel.send_buf.len() {
+                        let n = channel
+                            .stream
+                            .write(&channel.send_buf[channel.send_buf_offset..])
+                            .or_fail()?;
+                        if n == 0 {
+                            return Err(orfail::Failure::new("Connection closed by server"));
+                        }
+                        channel.send_buf_offset += n;
+                    }
+
+                    // Clear send buffer if fully sent
+                    if channel.send_buf_offset == channel.send_buf.len() {
+                        channel.send_buf.clear();
+                        channel.send_buf_offset = 0;
+
+                        // Deregister WRITABLE if no more data to send
+                        poll.registry()
+                            .reregister(&mut channel.stream, channel.token, mio::Interest::READABLE)
+                            .or_fail()?;
+                    }
+                }
+
+                if event.is_readable() {
+                    // Read responses
+                    let mut temp_buf = [0u8; 4096];
+                    match channel.stream.read(&mut temp_buf) {
+                        Ok(0) => {
+                            return Err(orfail::Failure::new("Server closed connection"));
+                        }
+                        Ok(n) => {
+                            channel.recv_buf.extend_from_slice(&temp_buf[..n]);
+
+                            // Parse complete lines (JSON-RPC responses)
+                            while let Some(newline_pos) = channel.recv_buf
+                                [channel.recv_buf_offset..]
+                                .iter()
+                                .position(|&b| b == b'\n')
+                            {
+                                let line_end = channel.recv_buf_offset + newline_pos;
+                                let response_line = String::from_utf8_lossy(
+                                    &channel.recv_buf[channel.recv_buf_offset..line_end],
+                                );
+
+                                let _response =
+                                    Response::parse(response_line.to_string()).or_fail()?;
+                                // Process response as needed
+                                // writeln!(&mut output_writer, "{}", _response.json).or_fail()?;
+
+                                channel.recv_buf_offset = line_end + 1;
+                                channel.ongoing_requests =
+                                    channel.ongoing_requests.saturating_sub(1);
+                                ongoing_requests = ongoing_requests.saturating_sub(1);
+                            }
+
+                            // Compact buffer if too much space is wasted
+                            if channel.recv_buf_offset > 4096 {
+                                channel.recv_buf.drain(..channel.recv_buf_offset);
+                                channel.recv_buf_offset = 0;
+                            }
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            // No data available, wait for next event
+                        }
+                        Err(e) => {
+                            return Err(orfail::Failure::new(format!("Read error: {}", e)));
+                        }
+                    }
+                }
+            }
         }
 
         /*

@@ -51,21 +51,25 @@ struct BenchCommand {
 
 impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
-        let streams = self.connect_to_servers().or_fail()?;
-        let stream = streams[0].try_clone().or_fail()?;
+        let channels = self.connect_to_servers().or_fail()?;
 
         let stdin = std::io::stdin();
         let input_reader = std::io::BufReader::new(stdin.lock());
-        let stdout = std::io::stdout();
-        let mut output_writer = std::io::BufWriter::new(stdout.lock());
-
-        let mut rpc_writer = std::io::BufWriter::new(stream.try_clone().or_fail()?);
-        let mut rpc_reader = std::io::BufReader::new(stream);
+        let mut requests = Vec::new();
+        let mut ids = std::collections::HashSet::new();
 
         for line in input_reader.lines() {
             let line = line.or_fail()?;
             let request = Request::parse(line).or_fail()?;
+            if let Some(id) = &request.id {
+                (!ids.contains(id)).or_fail_with(|()| {
+                    format!("request contains duplicate ID: {}", request.json)
+                })?;
+                ids.insert(id.clone());
+            }
+            requests.push(request);
 
+            /*
             writeln!(rpc_writer, "{}", request.json).or_fail()?;
             rpc_writer.flush().or_fail()?;
 
@@ -79,13 +83,17 @@ impl BenchCommand {
                 let response = Response::parse(response_line).or_fail()?;
                 writeln!(output_writer, "{}", response.json).or_fail()?;
             }
+            */
         }
 
+        let stdout = std::io::stdout();
+        let mut output_writer = std::io::BufWriter::new(stdout.lock());
         output_writer.flush().or_fail()?;
+
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<TcpStream>> {
+    fn connect_to_servers(&self) -> orfail::Result<Vec<RpcChannel>> {
         self.server_addrs
             .iter()
             .map(|addr| {
@@ -93,8 +101,17 @@ impl BenchCommand {
                 let stream = TcpStream::connect(addr)
                     .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
                 stream.set_nodelay(true).or_fail()?;
-                Ok(stream)
+                stream.set_nonblocking(true).or_fail()?;
+                Ok(RpcChannel {
+                    writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
+                    reader: std::io::BufReader::new(stream),
+                })
             })
             .collect()
     }
+}
+
+struct RpcChannel {
+    reader: std::io::BufReader<TcpStream>,
+    writer: std::io::BufWriter<TcpStream>,
 }

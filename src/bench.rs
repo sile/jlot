@@ -60,7 +60,7 @@ impl BenchCommand {
             while ongoing_requests.len() < self.concurrency.get()
                 && let Some(request) = requests.pop()
             {
-                ongoing_requests.insert((), request);
+                ongoing_requests.insert(request.id.clone(), request);
             }
             //
         }
@@ -130,12 +130,16 @@ impl BenchCommand {
             let line = line.or_fail()?;
             let request = Request::parse(line).or_fail()?;
 
-            if let Some(id) = &request.id {
-                (!ids.contains(id)).or_fail_with(|()| {
-                    format!("request contains duplicate ID: {}", request.json)
-                })?;
-                ids.insert(id.clone());
-            }
+            let id = request.id.as_ref().or_fail_with(|()| {
+                format!(
+                    "bench command does not support notificaion: {}",
+                    request.json
+                )
+            })?;
+            (!ids.contains(id))
+                .or_fail_with(|()| format!("request contains duplicate ID: {}", request.json))?;
+            ids.insert(id.clone());
+
             requests.push(request);
         }
         Ok(requests)

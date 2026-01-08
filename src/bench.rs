@@ -52,39 +52,23 @@ struct BenchCommand {
 impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
         let channels = self.connect_to_servers().or_fail()?;
+        let requests = self.read_requests().or_fail()?;
 
-        let stdin = std::io::stdin();
-        let input_reader = std::io::BufReader::new(stdin.lock());
-        let mut requests = Vec::new();
-        let mut ids = std::collections::HashSet::new();
+        /*
+        writeln!(rpc_writer, "{}", request.json).or_fail()?;
+        rpc_writer.flush().or_fail()?;
 
-        for line in input_reader.lines() {
-            let line = line.or_fail()?;
-            let request = Request::parse(line).or_fail()?;
-            if let Some(id) = &request.id {
-                (!ids.contains(id)).or_fail_with(|()| {
-                    format!("request contains duplicate ID: {}", request.json)
-                })?;
-                ids.insert(id.clone());
-            }
-            requests.push(request);
+        if request.id.is_some() {
+            let mut response_line = String::new();
+            let bytes_read = rpc_reader.read_line(&mut response_line).or_fail()?;
+            (bytes_read > 0).or_fail_with(|()| {
+                "Faied to receive RPC response: unexpected EOF".to_owned()
+            })?;
 
-            /*
-            writeln!(rpc_writer, "{}", request.json).or_fail()?;
-            rpc_writer.flush().or_fail()?;
-
-            if request.id.is_some() {
-                let mut response_line = String::new();
-                let bytes_read = rpc_reader.read_line(&mut response_line).or_fail()?;
-                (bytes_read > 0).or_fail_with(|()| {
-                    "Faied to receive RPC response: unexpected EOF".to_owned()
-                })?;
-
-                let response = Response::parse(response_line).or_fail()?;
-                writeln!(output_writer, "{}", response.json).or_fail()?;
-            }
-            */
+            let response = Response::parse(response_line).or_fail()?;
+            writeln!(output_writer, "{}", response.json).or_fail()?;
         }
+        */
 
         let stdout = std::io::stdout();
         let mut output_writer = std::io::BufWriter::new(stdout.lock());
@@ -108,6 +92,27 @@ impl BenchCommand {
                 })
             })
             .collect()
+    }
+
+    fn read_requests(&self) -> orfail::Result<Vec<Request>> {
+        let stdin = std::io::stdin();
+        let input_reader = std::io::BufReader::new(stdin.lock());
+        let mut requests = Vec::new();
+        let mut ids = std::collections::HashSet::new();
+
+        for line in input_reader.lines() {
+            let line = line.or_fail()?;
+            let request = Request::parse(line).or_fail()?;
+
+            if let Some(id) = &request.id {
+                (!ids.contains(id)).or_fail_with(|()| {
+                    format!("request contains duplicate ID: {}", request.json)
+                })?;
+                ids.insert(id.clone());
+            }
+            requests.push(request);
+        }
+        Ok(requests)
     }
 }
 

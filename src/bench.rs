@@ -19,17 +19,25 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .take(args)
         .then(|o| o.value().parse())?;
 
-    let server_addr: ServerAddr = noargs::arg("<SERVER>")
+    let server_addr_arg = noargs::arg("<SERVER>...")
         .doc("JSON-RPC server address or hostname")
-        .example("127.0.0.1:8080")
+        .example("127.0.0.1:8080");
+    let mut server_addrs: Vec<ServerAddr> = Vec::new();
+    server_addrs.push(server_addr_arg.take(args).then(|a| a.value().parse())?);
+    while let Some(addr) = server_addr_arg
         .take(args)
-        .then(|a| a.value().parse())?;
+        .present_and_then(|a| a.value().parse())?
+    {
+        server_addrs.push(addr);
+    }
 
     if args.metadata().help_mode {
         return Ok(false);
     }
 
-    let command = BenchCommand { server_addr };
+    let command = BenchCommand {
+        server_addr: server_addrs[0].clone(),
+    };
     command.run().or_fail()?;
 
     Ok(true)

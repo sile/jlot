@@ -36,7 +36,8 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     }
 
     let command = BenchCommand {
-        server_addr: server_addrs[0].clone(),
+        server_addrs,
+        concurrency,
     };
     command.run().or_fail()?;
 
@@ -44,12 +45,14 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 }
 
 struct BenchCommand {
-    server_addr: ServerAddr,
+    server_addrs: Vec<ServerAddr>,
+    concurrency: NonZeroUsize,
 }
 
 impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
-        let stream = self.connect_to_server().or_fail()?;
+        let streams = self.connect_to_servers().or_fail()?;
+        let stream = streams[0].try_clone().or_fail()?;
 
         let stdin = std::io::stdin();
         let input_reader = std::io::BufReader::new(stdin.lock());
@@ -82,10 +85,16 @@ impl BenchCommand {
         Ok(())
     }
 
-    fn connect_to_server(&self) -> orfail::Result<TcpStream> {
-        let stream = TcpStream::connect(&self.server_addr.0)
-            .or_fail_with(|e| format!("Failed to connect to '{}': {e}", self.server_addr.0))?;
-        stream.set_nodelay(true).or_fail()?;
-        Ok(stream)
+    fn connect_to_servers(&self) -> orfail::Result<Vec<TcpStream>> {
+        self.server_addrs
+            .iter()
+            .map(|addr| {
+                let addr = &addr.0;
+                let stream = TcpStream::connect(addr)
+                    .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
+                stream.set_nodelay(true).or_fail()?;
+                Ok(stream)
+            })
+            .collect()
     }
 }

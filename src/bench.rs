@@ -1,10 +1,9 @@
 use std::io::{BufRead, Write};
-use std::net::TcpStream;
 use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
-use crate::types::{Request, Response, ServerAddr};
+use crate::types::{Request, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
@@ -51,7 +50,8 @@ struct BenchCommand {
 
 impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
-        let channels = self.connect_to_servers().or_fail()?;
+        let mut poll = mio::Poll::new().or_fail()?;
+        let channels = self.connect_to_servers(&mut poll).or_fail()?;
         let requests = self.read_requests().or_fail()?;
 
         /*
@@ -77,18 +77,33 @@ impl BenchCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self) -> orfail::Result<Vec<RpcChannel>> {
+    fn connect_to_servers(&self, poll: &mut mio::Poll) -> orfail::Result<Vec<RpcChannel>> {
         self.server_addrs
             .iter()
-            .map(|addr| {
+            .enumerate()
+            .map(|(i, addr)| {
                 let addr = &addr.0;
-                let stream = TcpStream::connect(addr)
+                let stream = std::net::TcpStream::connect(addr)
                     .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
+
                 stream.set_nodelay(true).or_fail()?;
                 stream.set_nonblocking(true).or_fail()?;
+
+                let token = mio::Token(i);
+                let mut stream0 = mio::net::TcpStream::from_std(stream.try_clone().or_fail()?);
+                let stream1 = mio::net::TcpStream::from_std(stream);
+                poll.registry()
+                    .register(
+                        &mut stream0,
+                        token,
+                        mio::Interest::READABLE | mio::Interest::WRITABLE,
+                    )
+                    .or_fail()?;
+
                 Ok(RpcChannel {
-                    writer: std::io::BufWriter::new(stream.try_clone().or_fail()?),
-                    reader: std::io::BufReader::new(stream),
+                    token,
+                    writer: std::io::BufWriter::new(stream0),
+                    reader: std::io::BufReader::new(stream1),
                 })
             })
             .collect()
@@ -117,6 +132,7 @@ impl BenchCommand {
 }
 
 struct RpcChannel {
-    reader: std::io::BufReader<TcpStream>,
-    writer: std::io::BufWriter<TcpStream>,
+    token: mio::Token,
+    reader: std::io::BufReader<mio::net::TcpStream>,
+    writer: std::io::BufWriter<mio::net::TcpStream>,
 }

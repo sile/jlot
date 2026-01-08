@@ -65,11 +65,13 @@ impl BenchCommand {
             while ongoing_requests < self.concurrency.get()
                 && let Some(request) = requests.pop()
             {
-                let (count, i) = channel_requests.pop_first().or_fail()?;
+                let (_, i) = channel_requests.pop_first().or_fail()?;
                 channels[i].add_request(&mut poll, request).or_fail()?;
-                channel_requests.insert((count + 1, i));
+                channel_requests.insert((channels[i].ongoing_requests, i));
                 ongoing_requests += 1;
             }
+
+            //
         }
 
         /*

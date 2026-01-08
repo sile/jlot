@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
-use crate::types::{Request, RequestId, ServerAddr};
+use crate::types::{Request, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
@@ -148,7 +148,10 @@ struct RpcChannel {
     stream: mio::net::TcpStream,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
-    requests: std::collections::HashMap<RequestId, Request>,
+    recv_buf: Vec<u8>,
+    recv_buf_offset: usize,
+    ongoing_requests: usize,
+    requests: Vec<Request>,
 }
 
 impl RpcChannel {
@@ -158,7 +161,10 @@ impl RpcChannel {
             stream,
             send_buf: Vec::new(),
             send_buf_offset: 0,
-            requests: std::collections::HashMap::new(),
+            recv_buf: Vec::new(),
+            recv_buf_offset: 0,
+            ongoing_requests: 0,
+            requests: Vec::new(),
         }
     }
 
@@ -169,7 +175,8 @@ impl RpcChannel {
             .extend_from_slice(request.json.value().as_raw_str().as_bytes());
         self.send_buf.push(b'\n');
 
-        self.requests.insert(request.id.clone().or_fail()?, request);
+        self.requests.push(request);
+        self.ongoing_requests += 1;
 
         if needs_writable {
             poll.registry()

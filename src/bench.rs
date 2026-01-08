@@ -52,7 +52,18 @@ impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
         let mut poll = mio::Poll::new().or_fail()?;
         let channels = self.connect_to_servers(&mut poll).or_fail()?;
-        let requests = self.read_requests().or_fail()?;
+        let mut requests = self.read_requests().or_fail()?;
+        requests.reverse();
+
+        let mut ongoing_requests = std::collections::HashMap::new();
+        while !requests.is_empty() || !ongoing_requests.is_empty() {
+            while ongoing_requests.len() < self.concurrency.get()
+                && let Some(request) = requests.pop()
+            {
+                ongoing_requests.insert((), request);
+            }
+            //
+        }
 
         /*
         writeln!(rpc_writer, "{}", request.json).or_fail()?;

@@ -56,21 +56,22 @@ impl BenchCommand {
         requests.reverse();
 
         let mut ongoing_requests = 0;
-        let mut channel_requests = std::collections::BinaryHeap::new();
+        let mut channel_requests = std::collections::BTreeSet::new();
         for i in 0..channels.len() {
-            channel_requests.push((std::cmp::Reverse(0), i));
+            channel_requests.insert((0, i));
         }
 
         while !requests.is_empty() || ongoing_requests > 0 {
             while ongoing_requests < self.concurrency.get()
                 && let Some(request) = requests.pop()
             {
-                let (std::cmp::Reverse(count), i) = channel_requests.pop().or_fail()?;
-                channels[i].requests.insert(request.id.clone().or_fail()?, request);
-                channel_requests.push((std::cmp::Reverse(count + 1), i));
+                let (count, i) = channel_requests.pop_first().or_fail()?;
+                channels[i]
+                    .requests
+                    .insert(request.id.clone().or_fail()?, request);
+                channel_requests.insert((count + 1, i));
                 ongoing_requests += 1;
             }
-            //
         }
 
         /*

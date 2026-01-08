@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
-use crate::types::{Request, ServerAddr};
+use crate::types::{Request, RequestId, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
@@ -51,16 +51,24 @@ struct BenchCommand {
 impl BenchCommand {
     fn run(self) -> orfail::Result<()> {
         let mut poll = mio::Poll::new().or_fail()?;
-        let channels = self.connect_to_servers(&mut poll).or_fail()?;
+        let mut channels = self.connect_to_servers(&mut poll).or_fail()?;
         let mut requests = self.read_requests().or_fail()?;
         requests.reverse();
 
-        let mut ongoing_requests = std::collections::HashMap::new();
-        while !requests.is_empty() || !ongoing_requests.is_empty() {
-            while ongoing_requests.len() < self.concurrency.get()
+        let mut ongoing_requests = 0;
+        let mut channel_requests = std::collections::BinaryHeap::new();
+        for i in 0..channels.len() {
+            channel_requests.push((std::cmp::Reverse(0), i));
+        }
+
+        while !requests.is_empty() || ongoing_requests > 0 {
+            while ongoing_requests < self.concurrency.get()
                 && let Some(request) = requests.pop()
             {
-                ongoing_requests.insert(request.id.clone(), request);
+                let (std::cmp::Reverse(count), i) = channel_requests.pop().or_fail()?;
+                channels[i].requests.insert(request.id.clone().or_fail()?, request);
+                channel_requests.push((std::cmp::Reverse(count + 1), i));
+                ongoing_requests += 1;
             }
             //
         }
@@ -100,21 +108,20 @@ impl BenchCommand {
                 stream.set_nodelay(true).or_fail()?;
                 stream.set_nonblocking(true).or_fail()?;
 
-                let token = mio::Token(i);
                 let mut stream0 = mio::net::TcpStream::from_std(stream.try_clone().or_fail()?);
                 let stream1 = mio::net::TcpStream::from_std(stream);
                 poll.registry()
                     .register(
                         &mut stream0,
-                        token,
+                        mio::Token(i),
                         mio::Interest::READABLE | mio::Interest::WRITABLE,
                     )
                     .or_fail()?;
 
                 Ok(RpcChannel {
-                    token,
                     writer: std::io::BufWriter::new(stream0),
                     reader: std::io::BufReader::new(stream1),
+                    requests: std::collections::HashMap::new(),
                 })
             })
             .collect()
@@ -147,7 +154,7 @@ impl BenchCommand {
 }
 
 struct RpcChannel {
-    token: mio::Token,
     reader: std::io::BufReader<mio::net::TcpStream>,
     writer: std::io::BufWriter<mio::net::TcpStream>,
+    requests: std::collections::HashMap<RequestId, Request>,
 }

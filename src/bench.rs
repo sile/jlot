@@ -105,25 +105,15 @@ impl BenchCommand {
                 let addr = &addr.0;
                 let stream = std::net::TcpStream::connect(addr)
                     .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
-
                 stream.set_nodelay(true).or_fail()?;
                 stream.set_nonblocking(true).or_fail()?;
 
-                let mut stream0 = mio::net::TcpStream::from_std(stream.try_clone().or_fail()?);
-                let stream1 = mio::net::TcpStream::from_std(stream);
+                let mut stream = mio::net::TcpStream::from_std(stream);
                 poll.registry()
-                    .register(
-                        &mut stream0,
-                        mio::Token(i),
-                        mio::Interest::READABLE | mio::Interest::WRITABLE,
-                    )
+                    .register(&mut stream, mio::Token(i), mio::Interest::READABLE)
                     .or_fail()?;
 
-                Ok(RpcChannel {
-                    writer: std::io::BufWriter::new(stream0),
-                    reader: std::io::BufReader::new(stream1),
-                    requests: std::collections::HashMap::new(),
-                })
+                Ok(RpcChannel::new(stream))
             })
             .collect()
     }
@@ -155,7 +145,28 @@ impl BenchCommand {
 }
 
 struct RpcChannel {
-    reader: std::io::BufReader<mio::net::TcpStream>,
-    writer: std::io::BufWriter<mio::net::TcpStream>,
+    stream: mio::net::TcpStream,
+    send_buf: Vec<u8>,
+    send_buf_offset: usize,
     requests: std::collections::HashMap<RequestId, Request>,
+}
+
+impl RpcChannel {
+    fn new(stream: mio::net::TcpStream) -> Self {
+        Self {
+            stream,
+            send_buf: Vec::new(),
+            send_buf_offset: 0,
+            requests: std::collections::HashMap::new(),
+        }
+    }
+
+    fn add_request(&mut self, request: Request) -> orfail::Result<()> {
+        self.send_buf
+            .extend_from_slice(request.json.value().as_raw_str().as_bytes());
+        self.send_buf.push(b'\n');
+
+        self.requests.insert(request.id.clone().or_fail()?, request);
+        todo!()
+    }
 }

@@ -66,9 +66,7 @@ impl BenchCommand {
                 && let Some(request) = requests.pop()
             {
                 let (count, i) = channel_requests.pop_first().or_fail()?;
-                channels[i]
-                    .requests
-                    .insert(request.id.clone().or_fail()?, request);
+                channels[i].add_request(&mut poll, request).or_fail()?;
                 channel_requests.insert((count + 1, i));
                 ongoing_requests += 1;
             }
@@ -108,12 +106,13 @@ impl BenchCommand {
                 stream.set_nodelay(true).or_fail()?;
                 stream.set_nonblocking(true).or_fail()?;
 
+                let token = mio::Token(i);
                 let mut stream = mio::net::TcpStream::from_std(stream);
                 poll.registry()
-                    .register(&mut stream, mio::Token(i), mio::Interest::READABLE)
+                    .register(&mut stream, token, mio::Interest::READABLE)
                     .or_fail()?;
 
-                Ok(RpcChannel::new(stream))
+                Ok(RpcChannel::new(token, stream))
             })
             .collect()
     }
@@ -145,6 +144,7 @@ impl BenchCommand {
 }
 
 struct RpcChannel {
+    token: mio::Token,
     stream: mio::net::TcpStream,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
@@ -152,8 +152,9 @@ struct RpcChannel {
 }
 
 impl RpcChannel {
-    fn new(stream: mio::net::TcpStream) -> Self {
+    fn new(token: mio::Token, stream: mio::net::TcpStream) -> Self {
         Self {
+            token,
             stream,
             send_buf: Vec::new(),
             send_buf_offset: 0,
@@ -161,12 +162,19 @@ impl RpcChannel {
         }
     }
 
-    fn add_request(&mut self, request: Request) -> orfail::Result<()> {
+    fn add_request(&mut self, poll: &mut mio::Poll, request: Request) -> orfail::Result<()> {
+        let needs_writable = self.send_buf.is_empty();
+
         self.send_buf
             .extend_from_slice(request.json.value().as_raw_str().as_bytes());
         self.send_buf.push(b'\n');
 
         self.requests.insert(request.id.clone().or_fail()?, request);
-        todo!()
+
+        if needs_writable {
+            todo!()
+        }
+
+        Ok(())
     }
 }

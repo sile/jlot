@@ -114,14 +114,15 @@ impl BenchCommand {
                             channel.recv_buf.extend_from_slice(&temp_buf[..n]);
 
                             // Parse complete lines (JSON-RPC responses)
-                            while let Some(newline_pos) = channel.recv_buf
-                                [channel.recv_buf_offset..]
+                            while let Some(newline_pos) = channel
+                                .recv_buf
+                                //   [channel.recv_buf_offset..]
                                 .iter()
                                 .position(|&b| b == b'\n')
                             {
-                                let line_end = channel.recv_buf_offset + newline_pos;
+                                let line_end = /*channel.recv_buf_offset +*/ newline_pos;
                                 let response_line = String::from_utf8_lossy(
-                                    &channel.recv_buf[channel.recv_buf_offset..line_end],
+                                    &channel.recv_buf[/*channel.recv_buf_offset*/..line_end],
                                 );
 
                                 let _response =
@@ -129,17 +130,17 @@ impl BenchCommand {
                                 // Process response as needed
                                 // writeln!(&mut output_writer, "{}", _response.json).or_fail()?;
 
-                                channel.recv_buf_offset = line_end + 1;
+                                // channel.recv_buf_offset = line_end + 1;
                                 channel.ongoing_requests =
                                     channel.ongoing_requests.saturating_sub(1);
                                 ongoing_requests = ongoing_requests.saturating_sub(1);
                             }
 
-                            // Compact buffer if too much space is wasted
+                            /*// Compact buffer if too much space is wasted
                             if channel.recv_buf_offset > 4096 {
                                 channel.recv_buf.drain(..channel.recv_buf_offset);
                                 channel.recv_buf_offset = 0;
-                            }
+                            }*/
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             // No data available, wait for next event
@@ -229,7 +230,6 @@ struct RpcChannel {
     send_buf: Vec<u8>,
     send_buf_offset: usize,
     recv_buf: Vec<u8>,
-    recv_buf_offset: usize,
     ongoing_requests: usize,
     requests: Vec<Request>,
 }
@@ -242,7 +242,6 @@ impl RpcChannel {
             send_buf: Vec::new(),
             send_buf_offset: 0,
             recv_buf: Vec::new(),
-            recv_buf_offset: 0,
             ongoing_requests: 0,
             requests: Vec::new(),
         }

@@ -65,13 +65,16 @@ impl BenchCommand {
         let base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
         let mut events = mio::Events::with_capacity(128);
         while !requests.is_empty() || ongoing_requests > 0 {
-            while ongoing_requests < self.concurrency.get()
-                && let Some(request) = requests.pop()
-            {
-                let (_, i) = channel_requests.pop_first().or_fail()?;
-                channels[i].add_request(&mut poll, request).or_fail()?;
-                channel_requests.insert((channels[i].ongoing_requests, i));
-                ongoing_requests += 1;
+            if ongoing_requests < self.concurrency.get() {
+                let now = std::time::Instant::now();
+                while ongoing_requests < self.concurrency.get()
+                    && let Some(request) = requests.pop()
+                {
+                    let (_, i) = channel_requests.pop_first().or_fail()?;
+                    channels[i].add_request(&mut poll, now, request).or_fail()?;
+                    channel_requests.insert((channels[i].ongoing_requests, i));
+                    ongoing_requests += 1;
+                }
             }
 
             poll.poll(&mut events, None).or_fail()?;
@@ -228,13 +231,19 @@ impl RpcChannel {
         }
     }
 
-    fn add_request(&mut self, poll: &mut mio::Poll, request: Request) -> orfail::Result<()> {
+    fn add_request(
+        &mut self,
+        poll: &mut mio::Poll,
+        now: std::time::Instant,
+        request: Request,
+    ) -> orfail::Result<()> {
         let needs_writable = self.send_buf.is_empty();
 
         self.send_buf
             .extend_from_slice(request.json.value().as_raw_str().as_bytes());
         self.send_buf.push(b'\n');
 
+        self.start_times.push(now);
         self.requests.push(request);
         self.ongoing_requests += 1;
 
@@ -247,8 +256,6 @@ impl RpcChannel {
                 )
                 .or_fail()?;
         }
-
-        self.start_times.push(std::time::Instant::now());
 
         Ok(())
     }
@@ -287,14 +294,14 @@ impl RpcChannel {
                 Ok(n) => n,
             };
 
-            let mut i = 0;
-            while let Some(p) = buf[i..n].iter().position(|&b| b == b'\n') {
-                i += p + 1;
+            let count = buf[..n].iter().filter(|&&b| b == b'\n').count();
+            if count > 0 {
+                let now = std::time::Instant::now();
+                self.end_times.extend(std::iter::repeat_n(now, count));
                 self.ongoing_requests = self
                     .ongoing_requests
-                    .checked_sub(1)
+                    .checked_sub(count)
                     .or_fail_with(|()| "too many responses".to_owned())?;
-                self.end_times.push(std::time::Instant::now());
             }
 
             self.recv_buf.extend_from_slice(&buf[..n]);

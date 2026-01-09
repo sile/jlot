@@ -112,7 +112,7 @@ impl BenchCommand {
                     output_writer,
                     "{}",
                     nojson::object(|f| {
-                        // TODO: start_time, end_time, request_size, response_size, server
+                        // TODO: start_time, end_time, request_size, response_size
                         for (name, value) in request.json.value().to_object().expect("bug") {
                             let name = name.to_unquoted_string_str().expect("infallibe");
                             f.member(name, value)?;
@@ -123,6 +123,7 @@ impl BenchCommand {
                                 f.member(name, value)?;
                             }
                         }
+                        f.member("server", &channel.server_addr.0)?;
                         Ok(())
                     })
                 )
@@ -139,8 +140,8 @@ impl BenchCommand {
         self.server_addrs
             .iter()
             .enumerate()
-            .map(|(i, addr)| {
-                let addr = &addr.0;
+            .map(|(i, server_addr)| {
+                let addr = &server_addr.0;
                 let stream = std::net::TcpStream::connect(addr)
                     .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
                 stream.set_nodelay(true).or_fail()?;
@@ -152,7 +153,7 @@ impl BenchCommand {
                     .register(&mut stream, token, mio::Interest::READABLE)
                     .or_fail()?;
 
-                Ok(RpcChannel::new(token, stream))
+                Ok(RpcChannel::new(token, server_addr.clone(), stream))
             })
             .collect()
     }
@@ -185,6 +186,7 @@ impl BenchCommand {
 
 struct RpcChannel {
     token: mio::Token,
+    server_addr: ServerAddr,
     stream: mio::net::TcpStream,
     send_buf: Vec<u8>,
     send_buf_offset: usize,
@@ -194,9 +196,10 @@ struct RpcChannel {
 }
 
 impl RpcChannel {
-    fn new(token: mio::Token, stream: mio::net::TcpStream) -> Self {
+    fn new(token: mio::Token, server_addr: ServerAddr, stream: mio::net::TcpStream) -> Self {
         Self {
             token,
+            server_addr,
             stream,
             send_buf: Vec::new(),
             send_buf_offset: 0,

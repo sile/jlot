@@ -63,7 +63,7 @@ impl BenchCommand {
 
         let base_time = std::time::Instant::now();
         let base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
-        let mut events = mio::Events::with_capacity(128);
+        let mut events = mio::Events::with_capacity(channels.len());
         while !requests.is_empty() || ongoing_requests > 0 {
             if ongoing_requests < self.concurrency.get() {
                 let now = std::time::Instant::now();

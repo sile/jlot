@@ -61,6 +61,7 @@ impl BenchCommand {
             channel_requests.insert((0, i));
         }
 
+        let mut events = mio::Events::with_capacity(128);
         while !requests.is_empty() || ongoing_requests > 0 {
             while ongoing_requests < self.concurrency.get()
                 && let Some(request) = requests.pop()
@@ -71,36 +72,15 @@ impl BenchCommand {
                 ongoing_requests += 1;
             }
 
-            let mut events = mio::Events::with_capacity(128);
             poll.poll(&mut events, None).or_fail()?;
 
-            for event in events.iter() {
+            for event in &events {
                 let i = event.token().0;
+
                 let channel = &mut channels[i];
 
                 if event.is_writable() {
-                    // Send buffered requests
-                    while channel.send_buf_offset < channel.send_buf.len() {
-                        let n = channel
-                            .stream
-                            .write(&channel.send_buf[channel.send_buf_offset..])
-                            .or_fail()?;
-                        if n == 0 {
-                            return Err(orfail::Failure::new("Connection closed by server"));
-                        }
-                        channel.send_buf_offset += n;
-                    }
-
-                    // Clear send buffer if fully sent
-                    if channel.send_buf_offset == channel.send_buf.len() {
-                        channel.send_buf.clear();
-                        channel.send_buf_offset = 0;
-
-                        // Deregister WRITABLE if no more data to send
-                        poll.registry()
-                            .reregister(&mut channel.stream, channel.token, mio::Interest::READABLE)
-                            .or_fail()?;
-                    }
+                    channel.send_request(&mut poll).or_fail()?;
                 }
 
                 if event.is_readable() {
@@ -264,6 +244,30 @@ impl RpcChannel {
                     self.token,
                     mio::Interest::READABLE | mio::Interest::WRITABLE,
                 )
+                .or_fail()?;
+        }
+
+        Ok(())
+    }
+
+    fn send_request(&mut self, poll: &mut mio::Poll) -> orfail::Result<()> {
+        while self.send_buf_offset < self.send_buf.len() {
+            match self.stream.write(&self.send_buf[self.send_buf_offset..]) {
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    break;
+                }
+                Err(e) => return Err(orfail::Failure::new(format!("failed to send request: {e}"))),
+                Ok(0) => return Err(orfail::Failure::new("Connection closed by server")),
+                Ok(n) => self.send_buf_offset += n,
+            }
+        }
+
+        if self.send_buf_offset == self.send_buf.len() {
+            self.send_buf.clear();
+            self.send_buf_offset = 0;
+
+            poll.registry()
+                .reregister(&mut self.stream, self.token, mio::Interest::READABLE)
                 .or_fail()?;
         }
 

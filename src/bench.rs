@@ -96,11 +96,37 @@ impl BenchCommand {
         let mut output_writer = std::io::BufWriter::new(stdout.lock());
 
         for channel in channels {
+            let mut requests = channel
+                .requests
+                .into_iter()
+                .map(|mut r| (r.id.take(), r))
+                .collect::<std::collections::HashMap<_, _>>();
             for line in std::io::BufReader::new(&channel.recv_buf[..]).lines() {
                 let line = line.or_fail()?;
-                let response = Response::parse(line).or_fail()?;
-                response.id.is_some().or_fail_with(|()| "TODO".to_owned())?;
-                // TODO
+                let mut response = Response::parse(line).or_fail()?;
+                let id = response.id.take().or_fail_with(|()| "TODO".to_owned())?;
+                let request = requests
+                    .remove(&Some(id))
+                    .or_fail_with(|()| "TODO".to_owned())?;
+                writeln!(
+                    output_writer,
+                    "{}",
+                    nojson::object(|f| {
+                        // TODO: start_time, end_time, request_size, response_size, server
+                        for (name, value) in request.json.value().to_object().expect("bug") {
+                            let name = name.to_unquoted_string_str().expect("infallibe");
+                            f.member(name, value)?;
+                        }
+                        for (name, value) in response.json.value().to_object().expect("bug") {
+                            let name = name.to_unquoted_string_str().expect("infallibe");
+                            if matches!(name.as_ref(), "jsonrpc" | "id" | "method" | "params") {
+                                f.member(name, value)?;
+                            }
+                        }
+                        Ok(())
+                    })
+                )
+                .or_fail()?;
             }
         }
 

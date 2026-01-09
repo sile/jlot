@@ -124,6 +124,8 @@ impl BenchCommand {
                             }
                         }
                         f.member("server", &channel.server_addr.0)?;
+                        f.member("request_byte_size", request.json.text().len())?;
+                        f.member("response_byte_size", response.json.text().len())?;
                         Ok(())
                     })
                 )

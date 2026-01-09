@@ -265,7 +265,7 @@ impl RpcChannel {
 
             let mut i = 0;
             while let Some(p) = buf[i..n].iter().position(|&b| b == b'\n') {
-                i = p + 1;
+                i += p + 1;
                 self.ongoing_requests = self
                     .ongoing_requests
                     .checked_sub(1)

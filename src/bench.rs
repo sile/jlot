@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 
 use orfail::OrFail;
 
-use crate::types::{Request, ServerAddr};
+use crate::types::{Request, Response, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
@@ -92,24 +92,18 @@ impl BenchCommand {
             }
         }
 
-        /*
-        writeln!(rpc_writer, "{}", request.json).or_fail()?;
-        rpc_writer.flush().or_fail()?;
-
-        if request.id.is_some() {
-            let mut response_line = String::new();
-            let bytes_read = rpc_reader.read_line(&mut response_line).or_fail()?;
-            (bytes_read > 0).or_fail_with(|()| {
-                "Faied to receive RPC response: unexpected EOF".to_owned()
-            })?;
-
-            let response = Response::parse(response_line).or_fail()?;
-            writeln!(output_writer, "{}", response.json).or_fail()?;
-        }
-        */
-
         let stdout = std::io::stdout();
         let mut output_writer = std::io::BufWriter::new(stdout.lock());
+
+        for channel in channels {
+            for line in std::io::BufReader::new(&channel.recv_buf[..]).lines() {
+                let line = line.or_fail()?;
+                let response = Response::parse(line).or_fail()?;
+                response.id.is_some().or_fail_with(|()| "TODO".to_owned())?;
+                // TODO
+            }
+        }
+
         output_writer.flush().or_fail()?;
 
         Ok(())

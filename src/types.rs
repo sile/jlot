@@ -98,7 +98,6 @@ impl Request {
 #[derive(Debug, Clone)]
 pub struct Response {
     pub json: nojson::RawJsonOwned,
-    #[expect(dead_code)]
     pub id: Option<RequestId>,
 }
 

@@ -61,6 +61,8 @@ impl BenchCommand {
             channel_requests.insert((0, i));
         }
 
+        let base_time = std::time::Instant::now();
+        let base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
         let mut events = mio::Events::with_capacity(128);
         while !requests.is_empty() || ongoing_requests > 0 {
             while ongoing_requests < self.concurrency.get()
@@ -99,20 +101,26 @@ impl BenchCommand {
             let mut requests = channel
                 .requests
                 .into_iter()
-                .map(|mut r| (r.id.take(), r))
+                .zip(channel.start_times)
+                .map(|(mut r, t)| (r.id.take(), (r, t)))
                 .collect::<std::collections::HashMap<_, _>>();
-            for line in std::io::BufReader::new(&channel.recv_buf[..]).lines() {
+            for (line, end_time) in std::io::BufReader::new(&channel.recv_buf[..])
+                .lines()
+                .zip(channel.end_times)
+            {
                 let line = line.or_fail()?;
                 let mut response = Response::parse(line).or_fail()?;
                 let id = response.id.take().or_fail_with(|()| "TODO".to_owned())?;
-                let request = requests
+                let (request, start_time) = requests
                     .remove(&Some(id))
                     .or_fail_with(|()| "TODO".to_owned())?;
+                let start_unix_timestamp =
+                    start_time.duration_since(base_time) + base_unix_timestamp;
+                let end_unix_timestamp = end_time.duration_since(base_time) + base_unix_timestamp;
                 writeln!(
                     output_writer,
                     "{}",
                     nojson::object(|f| {
-                        // TODO: start_time, end_time, request_size, response_size
                         for (name, value) in request.json.value().to_object().expect("bug") {
                             let name = name.to_unquoted_string_str().expect("infallibe");
                             f.member(name, value)?;
@@ -126,6 +134,11 @@ impl BenchCommand {
                         f.member("server", &channel.server_addr.0)?;
                         f.member("request_byte_size", request.json.text().len())?;
                         f.member("response_byte_size", response.json.text().len())?;
+                        f.member(
+                            "start_unix_timestamp_micros",
+                            start_unix_timestamp.as_micros(),
+                        )?;
+                        f.member("end_unix_timestamp_micros", end_unix_timestamp.as_micros())?;
                         Ok(())
                     })
                 )
@@ -195,6 +208,8 @@ struct RpcChannel {
     recv_buf: Vec<u8>,
     ongoing_requests: usize,
     requests: Vec<Request>,
+    start_times: Vec<std::time::Instant>,
+    end_times: Vec<std::time::Instant>,
 }
 
 impl RpcChannel {
@@ -208,6 +223,8 @@ impl RpcChannel {
             recv_buf: Vec::new(),
             ongoing_requests: 0,
             requests: Vec::new(),
+            start_times: Vec::new(),
+            end_times: Vec::new(),
         }
     }
 
@@ -230,6 +247,8 @@ impl RpcChannel {
                 )
                 .or_fail()?;
         }
+
+        self.start_times.push(std::time::Instant::now());
 
         Ok(())
     }
@@ -275,6 +294,7 @@ impl RpcChannel {
                     .ongoing_requests
                     .checked_sub(1)
                     .or_fail_with(|()| "too many responses".to_owned())?;
+                self.end_times.push(std::time::Instant::now());
             }
 
             self.recv_buf.extend_from_slice(&buf[..n]);

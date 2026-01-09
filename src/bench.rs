@@ -76,59 +76,14 @@ impl BenchCommand {
 
             for event in &events {
                 let i = event.token().0;
-
                 let channel = &mut channels[i];
-
                 if event.is_writable() {
                     channel.send_request(&mut poll).or_fail()?;
                 }
-
                 if event.is_readable() {
-                    // Read responses
-                    let mut temp_buf = [0u8; 4096];
-                    match channel.stream.read(&mut temp_buf) {
-                        Ok(0) => {
-                            return Err(orfail::Failure::new("Server closed connection"));
-                        }
-                        Ok(n) => {
-                            channel.recv_buf.extend_from_slice(&temp_buf[..n]);
-
-                            // Parse complete lines (JSON-RPC responses)
-                            while let Some(newline_pos) = channel
-                                .recv_buf
-                                //   [channel.recv_buf_offset..]
-                                .iter()
-                                .position(|&b| b == b'\n')
-                            {
-                                let line_end = /*channel.recv_buf_offset +*/ newline_pos;
-                                let response_line = String::from_utf8_lossy(
-                                    &channel.recv_buf[/*channel.recv_buf_offset*/..line_end],
-                                );
-
-                                let _response =
-                                    Response::parse(response_line.to_string()).or_fail()?;
-                                // Process response as needed
-                                // writeln!(&mut output_writer, "{}", _response.json).or_fail()?;
-
-                                // channel.recv_buf_offset = line_end + 1;
-                                channel.ongoing_requests =
-                                    channel.ongoing_requests.saturating_sub(1);
-                                ongoing_requests = ongoing_requests.saturating_sub(1);
-                            }
-
-                            /*// Compact buffer if too much space is wasted
-                            if channel.recv_buf_offset > 4096 {
-                                channel.recv_buf.drain(..channel.recv_buf_offset);
-                                channel.recv_buf_offset = 0;
-                            }*/
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            // No data available, wait for next event
-                        }
-                        Err(e) => {
-                            return Err(orfail::Failure::new(format!("Read error: {}", e)));
-                        }
-                    }
+                    ongoing_requests -= channel.ongoing_requests;
+                    channel.recv_response().or_fail()?;
+                    ongoing_requests += channel.ongoing_requests;
                 }
             }
         }
@@ -271,6 +226,52 @@ impl RpcChannel {
                 .or_fail()?;
         }
 
+        Ok(())
+    }
+
+    fn recv_response(&mut self) -> orfail::Result<()> {
+        // Read responses
+        let mut temp_buf = [0u8; 4096];
+        match self.stream.read(&mut temp_buf) {
+            Ok(0) => {
+                return Err(orfail::Failure::new("Server closed connection"));
+            }
+            Ok(n) => {
+                self.recv_buf.extend_from_slice(&temp_buf[..n]);
+
+                // Parse complete lines (JSON-RPC responses)
+                while let Some(newline_pos) = self
+                    .recv_buf
+                    //   [self    .recv_buf_offset..]
+                    .iter()
+                    .position(|&b| b == b'\n')
+                {
+                    let line_end = /*self    .recv_buf_offset +*/ newline_pos;
+                    let response_line = String::from_utf8_lossy(
+                        &self    .recv_buf[/*self    .recv_buf_offset*/..line_end],
+                    );
+
+                    let _response = Response::parse(response_line.to_string()).or_fail()?;
+                    // Process response as needed
+                    // writeln!(&mut output_writer, "{}", _response.json).or_fail()?;
+
+                    // self    .recv_buf_offset = line_end + 1;
+                    self.ongoing_requests = self.ongoing_requests.saturating_sub(1);
+                }
+
+                /*// Compact buffer if too much space is wasted
+                if self    .recv_buf_offset > 4096 {
+                    self    .recv_buf.drain(..self    .recv_buf_offset);
+                    self    .recv_buf_offset = 0;
+                }*/
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available, wait for next event
+            }
+            Err(e) => {
+                return Err(orfail::Failure::new(format!("Read error: {}", e)));
+            }
+        }
         Ok(())
     }
 }

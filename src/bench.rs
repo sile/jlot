@@ -81,9 +81,13 @@ impl BenchCommand {
                     channel.send_request(&mut poll).or_fail()?;
                 }
                 if event.is_readable() {
-                    ongoing_requests -= channel.ongoing_requests;
+                    let old_count = channel.ongoing_requests;
+                    ongoing_requests -= old_count;
                     channel.recv_response().or_fail()?;
                     ongoing_requests += channel.ongoing_requests;
+
+                    channel_requests.remove(&(old_count, i));
+                    channel_requests.insert((channel.ongoing_requests, i));
                 }
             }
         }

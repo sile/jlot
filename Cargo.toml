@@ -10,6 +10,7 @@ repository = "https://github.com/sile/jlot"
 readme = "README.md"
 
 [dependencies]
+mio = { version = "1.1.1", default-features=false, features = ["os-poll", "net"] }
 noargs = "0.4.1"
 nojson = "0.3.6"
 orfail = "2.0.0"

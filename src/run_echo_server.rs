@@ -3,6 +3,8 @@ use std::net::TcpStream;
 
 use orfail::OrFail;
 
+use crate::types::ServerAddr;
+
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("run-echo-server")
         .doc(concat!(
@@ -17,7 +19,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
-    let listen_addr: std::net::SocketAddr = noargs::arg("<ADDR>")
+    let listen_addr: ServerAddr = noargs::arg("<ADDR>")
         .doc("Listen address")
         .example("127.0.0.1:8080")
         .take(args)
@@ -31,8 +33,8 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     Ok(true)
 }
 
-fn run_server(listen_addr: std::net::SocketAddr) -> orfail::Result<()> {
-    let listener = std::net::TcpListener::bind(listen_addr).or_fail()?;
+fn run_server(listen_addr: ServerAddr) -> orfail::Result<()> {
+    let listener = std::net::TcpListener::bind(listen_addr.0).or_fail()?;
     for incoming in listener.incoming() {
         let stream = incoming.or_fail()?;
         std::thread::spawn(move || {

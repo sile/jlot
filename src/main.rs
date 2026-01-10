@@ -11,6 +11,7 @@ fn main() -> noargs::Result<()> {
 
     let _ = jlot::req::try_run(&mut args)?
         || jlot::call::try_run(&mut args)?
+        || jlot::bench::try_run(&mut args)?
         || jlot::stats::try_run(&mut args)?
         || jlot::run_echo_server::try_run(&mut args)?;
 

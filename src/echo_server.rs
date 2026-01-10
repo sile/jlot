@@ -6,7 +6,7 @@ use orfail::OrFail;
 use crate::types::ServerAddr;
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
-    if !noargs::cmd("run-echo-server")
+    if !noargs::cmd("echo-server")
         .doc(concat!(
             "Run a JSON-RPC echo server (for development or testing purposes)\n",
             "\n",

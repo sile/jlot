@@ -13,7 +13,7 @@ fn main() -> noargs::Result<()> {
         || jlot::call::try_run(&mut args)?
         || jlot::bench::try_run(&mut args)?
         || jlot::stats::try_run(&mut args)?
-        || jlot::run_echo_server::try_run(&mut args)?;
+        || jlot::echo_server::try_run(&mut args)?;
 
     if let Some(help) = args.finish()? {
         print!("{help}");

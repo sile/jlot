@@ -113,7 +113,7 @@ impl BenchCommand {
 
             let id = request.id.as_ref().or_fail_with(|()| {
                 format!(
-                    "bench command does not support notificaion: {}",
+                    "bench command does not support notification: {}",
                     request.json
                 )
             })?;

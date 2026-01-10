@@ -201,49 +201,39 @@ impl Stats {
         &mut self,
         output: nojson::RawJsonValue<'_, '_>,
     ) -> Result<(), nojson::JsonParseError> {
-        let Some(metadata) = output.to_member("metadata")?.get() else {
-            return Ok(());
-        };
+        // Extract timing and size information from root level
+        let start_time_micros: u64 = output
+            .to_member("start_unix_timestamp_micros")?
+            .required()?
+            .try_into()?;
+        let end_time_micros: u64 = output
+            .to_member("end_unix_timestamp_micros")?
+            .required()?
+            .try_into()?;
+        let request_byte_size: usize = output
+            .to_member("request_byte_size")?
+            .required()?
+            .try_into()?;
+        let response_byte_size: usize = output
+            .to_member("response_byte_size")?
+            .required()?
+            .try_into()?;
 
-        self.handle_metadata(metadata, output)?;
-
-        if output.to_member("result")?.get().is_some() {
-            self.success_count += 1;
-        } else {
-            self.error_count += 1;
-        }
-
-        Ok(())
-    }
-
-    fn handle_metadata(
-        &mut self,
-        metadata: nojson::RawJsonValue<'_, '_>,
-        output: nojson::RawJsonValue<'_, '_>,
-    ) -> Result<(), nojson::JsonParseError> {
-        let start_time = Duration::from_micros(
-            metadata
-                .to_member("start_time_us")?
-                .required()?
-                .try_into()?,
-        );
-        let end_time =
-            Duration::from_micros(metadata.to_member("end_time_us")?.required()?.try_into()?);
+        let start_time = Duration::from_micros(start_time_micros);
+        let end_time = Duration::from_micros(end_time_micros);
 
         self.start_end_times.push((start_time, end_time));
         self.latencies.push(end_time.saturating_sub(start_time));
 
-        let request_bytes = metadata
-            .to_member("request")?
-            .required()?
-            .as_raw_str()
-            .len();
-        self.request_bytes += request_bytes as u64;
+        self.request_bytes += request_byte_size as u64;
+        self.response_bytes += response_byte_size as u64;
 
-        // NOTE: We will change the input JSON format to eliminate the need of this weird workaround in the near future
-        let response_bytes =
-            output.as_raw_str().len() - (r#","metadata":"#.len() + metadata.as_raw_str().len());
-        self.response_bytes += response_bytes as u64;
+        // Check for success/error based on presence of "result" or "error"
+        if output.to_member("result")?.get().is_some() {
+            self.success_count += 1;
+        } else if output.to_member("error")?.get().is_some() {
+            self.error_count += 1;
+        }
 
         Ok(())
     }

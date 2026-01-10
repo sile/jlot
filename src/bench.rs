@@ -126,55 +126,6 @@ impl BenchCommand {
         Ok(())
     }
 
-    fn run_rpc_calls(&mut self) -> orfail::Result<()> {
-        self.base_time = std::time::Instant::now();
-        self.base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
-
-        let mut events = mio::Events::with_capacity(self.channels.len());
-        while !self.requests.is_empty() || self.ongoing_requests > 0 {
-            if self.ongoing_requests < self.concurrency.get() {
-                self.enqueue_pending_requests().or_fail()?;
-            }
-
-            self.poll.poll(&mut events, None).or_fail()?;
-
-            for event in &events {
-                let i = event.token().0;
-                let channel = &mut self.channels[i];
-                if event.is_writable() {
-                    channel.send_request(&mut self.poll).or_fail()?;
-                }
-                if event.is_readable() {
-                    let old_count = channel.ongoing_requests;
-                    self.ongoing_requests -= old_count;
-                    channel.recv_response().or_fail()?;
-                    self.ongoing_requests += channel.ongoing_requests;
-
-                    self.channel_requests.remove(&(old_count, i));
-                    self.channel_requests.insert((channel.ongoing_requests, i));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn enqueue_pending_requests(&mut self) -> orfail::Result<()> {
-        let now = std::time::Instant::now();
-        while self.ongoing_requests < self.concurrency.get()
-            && let Some(request) = self.requests.pop()
-        {
-            let (_, i) = self.channel_requests.pop_first().or_fail()?;
-            self.channels[i]
-                .enqueue_request(&mut self.poll, now, request)
-                .or_fail()?;
-            self.channel_requests
-                .insert((self.channels[i].ongoing_requests, i));
-            self.ongoing_requests += 1;
-        }
-        Ok(())
-    }
-
     fn setup_rpc_channels(&mut self) -> orfail::Result<()> {
         for (i, server_addr) in self.server_addrs.iter().enumerate() {
             let addr = &server_addr.0;
@@ -226,6 +177,55 @@ impl BenchCommand {
 
         self.requests.reverse();
 
+        Ok(())
+    }
+
+    fn run_rpc_calls(&mut self) -> orfail::Result<()> {
+        self.base_time = std::time::Instant::now();
+        self.base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
+
+        let mut events = mio::Events::with_capacity(self.channels.len());
+        while !self.requests.is_empty() || self.ongoing_requests > 0 {
+            if self.ongoing_requests < self.concurrency.get() {
+                self.enqueue_pending_requests().or_fail()?;
+            }
+
+            self.poll.poll(&mut events, None).or_fail()?;
+
+            for event in &events {
+                let i = event.token().0;
+                let channel = &mut self.channels[i];
+                if event.is_writable() {
+                    channel.send_request(&mut self.poll).or_fail()?;
+                }
+                if event.is_readable() {
+                    let old_count = channel.ongoing_requests;
+                    self.ongoing_requests -= old_count;
+                    channel.recv_response().or_fail()?;
+                    self.ongoing_requests += channel.ongoing_requests;
+
+                    self.channel_requests.remove(&(old_count, i));
+                    self.channel_requests.insert((channel.ongoing_requests, i));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn enqueue_pending_requests(&mut self) -> orfail::Result<()> {
+        let now = std::time::Instant::now();
+        while self.ongoing_requests < self.concurrency.get()
+            && let Some(request) = self.requests.pop()
+        {
+            let (_, i) = self.channel_requests.pop_first().or_fail()?;
+            self.channels[i]
+                .enqueue_request(&mut self.poll, now, request)
+                .or_fail()?;
+            self.channel_requests
+                .insert((self.channels[i].ongoing_requests, i));
+            self.ongoing_requests += 1;
+        }
         Ok(())
     }
 }

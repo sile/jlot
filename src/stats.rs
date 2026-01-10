@@ -229,10 +229,11 @@ impl Stats {
         self.response_bytes += response_byte_size as u64;
 
         // Check for success/error based on presence of "result" or "error"
-        if output.to_member("result")?.get().is_some() {
-            self.success_count += 1;
-        } else if output.to_member("error")?.get().is_some() {
+        if output.to_member("error")?.get().is_some() {
             self.error_count += 1;
+        } else {
+            output.to_member("result")?.required()?;
+            self.success_count += 1;
         }
 
         Ok(())

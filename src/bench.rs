@@ -60,14 +60,8 @@ struct BenchCommand {
 
 impl BenchCommand {
     fn run(mut self) -> orfail::Result<()> {
-        self.channels = self.connect_to_servers().or_fail()?;
-        self.requests = self.read_requests().or_fail()?;
-        self.requests.reverse();
-
-        self.channel_requests = std::collections::BTreeSet::new();
-        for i in 0..self.channels.len() {
-            self.channel_requests.insert((0, i));
-        }
+        self.setup_rpc_channels().or_fail()?;
+        self.read_requests().or_fail()?;
 
         let base_time = std::time::Instant::now();
         let base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
@@ -165,33 +159,36 @@ impl BenchCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&mut self) -> orfail::Result<Vec<RpcChannel>> {
-        self.server_addrs
-            .iter()
-            .enumerate()
-            .map(|(i, server_addr)| {
-                let addr = &server_addr.0;
-                let stream = std::net::TcpStream::connect(addr)
-                    .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
-                stream.set_nodelay(true).or_fail()?;
-                stream.set_nonblocking(true).or_fail()?;
+    fn setup_rpc_channels(&mut self) -> orfail::Result<()> {
+        for (i, server_addr) in self.server_addrs.iter().enumerate() {
+            let addr = &server_addr.0;
+            let stream = std::net::TcpStream::connect(addr)
+                .or_fail_with(|e| format!("Failed to connect to '{addr}': {e}"))?;
+            stream.set_nodelay(true).or_fail()?;
+            stream.set_nonblocking(true).or_fail()?;
 
-                let token = mio::Token(i);
-                let mut stream = mio::net::TcpStream::from_std(stream);
-                self.poll
-                    .registry()
-                    .register(&mut stream, token, mio::Interest::READABLE)
-                    .or_fail()?;
+            let token = mio::Token(i);
+            let mut stream = mio::net::TcpStream::from_std(stream);
+            self.poll
+                .registry()
+                .register(&mut stream, token, mio::Interest::READABLE)
+                .or_fail()?;
 
-                Ok(RpcChannel::new(token, server_addr.clone(), stream))
-            })
-            .collect()
+            self.channels
+                .push(RpcChannel::new(token, server_addr.clone(), stream));
+        }
+
+        self.channel_requests = std::collections::BTreeSet::new();
+        for i in 0..self.channels.len() {
+            self.channel_requests.insert((0, i));
+        }
+
+        Ok(())
     }
 
-    fn read_requests(&self) -> orfail::Result<Vec<Request>> {
+    fn read_requests(&mut self) -> orfail::Result<()> {
         let stdin = std::io::stdin();
         let input_reader = std::io::BufReader::new(stdin.lock());
-        let mut requests = Vec::new();
         let mut ids = std::collections::HashSet::new();
 
         for line in input_reader.lines() {
@@ -208,9 +205,12 @@ impl BenchCommand {
                 .or_fail_with(|()| format!("request contains duplicate ID: {}", request.json))?;
             ids.insert(id.clone());
 
-            requests.push(request);
+            self.requests.push(request);
         }
-        Ok(requests)
+
+        self.requests.reverse();
+
+        Ok(())
     }
 }
 

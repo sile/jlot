@@ -37,6 +37,11 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     let command = BenchCommand {
         server_addrs,
         concurrency,
+        poll: mio::Poll::new().or_fail()?,
+        channels: Vec::new(),
+        requests: Vec::new(),
+        ongoing_requests: 0,
+        channel_requests: std::collections::BTreeSet::new(),
     };
     command.run().or_fail()?;
 
@@ -46,53 +51,59 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 struct BenchCommand {
     server_addrs: Vec<ServerAddr>,
     concurrency: NonZeroUsize,
+    poll: mio::Poll,
+    channels: Vec<RpcChannel>,
+    requests: Vec<Request>,
+    ongoing_requests: usize,
+    channel_requests: std::collections::BTreeSet<(usize, usize)>,
 }
 
 impl BenchCommand {
-    fn run(self) -> orfail::Result<()> {
-        let mut poll = mio::Poll::new().or_fail()?;
-        let mut channels = self.connect_to_servers(&mut poll).or_fail()?;
-        let mut requests = self.read_requests().or_fail()?;
-        requests.reverse();
+    fn run(mut self) -> orfail::Result<()> {
+        self.channels = self.connect_to_servers().or_fail()?;
+        self.requests = self.read_requests().or_fail()?;
+        self.requests.reverse();
 
-        let mut ongoing_requests = 0;
-        let mut channel_requests = std::collections::BTreeSet::new();
-        for i in 0..channels.len() {
-            channel_requests.insert((0, i));
+        self.channel_requests = std::collections::BTreeSet::new();
+        for i in 0..self.channels.len() {
+            self.channel_requests.insert((0, i));
         }
 
         let base_time = std::time::Instant::now();
         let base_unix_timestamp = std::time::UNIX_EPOCH.elapsed().or_fail()?;
-        let mut events = mio::Events::with_capacity(channels.len());
-        while !requests.is_empty() || ongoing_requests > 0 {
-            if ongoing_requests < self.concurrency.get() {
+        let mut events = mio::Events::with_capacity(self.channels.len());
+        while !self.requests.is_empty() || self.ongoing_requests > 0 {
+            if self.ongoing_requests < self.concurrency.get() {
                 let now = std::time::Instant::now();
-                while ongoing_requests < self.concurrency.get()
-                    && let Some(request) = requests.pop()
+                while self.ongoing_requests < self.concurrency.get()
+                    && let Some(request) = self.requests.pop()
                 {
-                    let (_, i) = channel_requests.pop_first().or_fail()?;
-                    channels[i].add_request(&mut poll, now, request).or_fail()?;
-                    channel_requests.insert((channels[i].ongoing_requests, i));
-                    ongoing_requests += 1;
+                    let (_, i) = self.channel_requests.pop_first().or_fail()?;
+                    self.channels[i]
+                        .add_request(&mut self.poll, now, request)
+                        .or_fail()?;
+                    self.channel_requests
+                        .insert((self.channels[i].ongoing_requests, i));
+                    self.ongoing_requests += 1;
                 }
             }
 
-            poll.poll(&mut events, None).or_fail()?;
+            self.poll.poll(&mut events, None).or_fail()?;
 
             for event in &events {
                 let i = event.token().0;
-                let channel = &mut channels[i];
+                let channel = &mut self.channels[i];
                 if event.is_writable() {
-                    channel.send_request(&mut poll).or_fail()?;
+                    channel.send_request(&mut self.poll).or_fail()?;
                 }
                 if event.is_readable() {
                     let old_count = channel.ongoing_requests;
-                    ongoing_requests -= old_count;
+                    self.ongoing_requests -= old_count;
                     channel.recv_response().or_fail()?;
-                    ongoing_requests += channel.ongoing_requests;
+                    self.ongoing_requests += channel.ongoing_requests;
 
-                    channel_requests.remove(&(old_count, i));
-                    channel_requests.insert((channel.ongoing_requests, i));
+                    self.channel_requests.remove(&(old_count, i));
+                    self.channel_requests.insert((channel.ongoing_requests, i));
                 }
             }
         }
@@ -100,7 +111,7 @@ impl BenchCommand {
         let stdout = std::io::stdout();
         let mut output_writer = std::io::BufWriter::new(stdout.lock());
 
-        for channel in channels {
+        for channel in self.channels {
             let mut requests = channel
                 .requests
                 .into_iter()
@@ -154,7 +165,7 @@ impl BenchCommand {
         Ok(())
     }
 
-    fn connect_to_servers(&self, poll: &mut mio::Poll) -> orfail::Result<Vec<RpcChannel>> {
+    fn connect_to_servers(&mut self) -> orfail::Result<Vec<RpcChannel>> {
         self.server_addrs
             .iter()
             .enumerate()
@@ -167,7 +178,8 @@ impl BenchCommand {
 
                 let token = mio::Token(i);
                 let mut stream = mio::net::TcpStream::from_std(stream);
-                poll.registry()
+                self.poll
+                    .registry()
                     .register(&mut stream, token, mio::Interest::READABLE)
                     .or_fail()?;
 

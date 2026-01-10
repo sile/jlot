@@ -334,7 +334,7 @@ impl RpcChannel {
                         "Failed to read response: {e}"
                     )));
                 }
-                Ok(0) => return Err(orfail::Failure::new("Server closed connection")),
+                Ok(0) => return Err(orfail::Failure::new("Connection closed by server")),
                 Ok(n) => n,
             };
 

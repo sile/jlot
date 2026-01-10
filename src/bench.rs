@@ -6,7 +6,11 @@ use orfail::OrFail;
 use crate::types::{Request, Response, ServerAddr};
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
-    if !noargs::cmd("bench").doc("TODO").take(args).is_present() {
+    if !noargs::cmd("bench")
+        .doc("Run JSON-RPC benchmark")
+        .take(args)
+        .is_present()
+    {
         return Ok(false);
     }
 
@@ -114,7 +118,7 @@ impl BenchCommand {
                 )
             })?;
             (!ids.contains(id))
-                .or_fail_with(|()| format!("request contains duplicate ID: {}", request.json))?;
+                .or_fail_with(|()| format!("Request contains duplicate ID: {}", request.json))?;
             ids.insert(id.clone());
 
             self.requests.push(request);
@@ -192,10 +196,13 @@ impl BenchCommand {
             {
                 let line = line.or_fail()?;
                 let mut response = Response::parse(line).or_fail()?;
-                let id = response.id.take().or_fail_with(|()| "TODO".to_owned())?;
-                let (request, start_time) = requests
-                    .remove(&Some(id))
-                    .or_fail_with(|()| "TODO".to_owned())?;
+                let id = response
+                    .id
+                    .take()
+                    .or_fail_with(|()| "Response missing required 'id' field".to_owned())?;
+                let (request, start_time) = requests.remove(&Some(id)).or_fail_with(|()| {
+                    "Response ID does not match any pending request".to_owned()
+                })?;
                 let start_unix_timestamp =
                     start_time.duration_since(self.base_time) + self.base_unix_timestamp;
                 let end_unix_timestamp =
@@ -299,7 +306,7 @@ impl RpcChannel {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     break;
                 }
-                Err(e) => return Err(orfail::Failure::new(format!("failed to send request: {e}"))),
+                Err(e) => return Err(orfail::Failure::new(format!("Failed to send request: {e}"))),
                 Ok(0) => return Err(orfail::Failure::new("Connection closed by server")),
                 Ok(n) => self.send_buf_offset += n,
             }
@@ -322,7 +329,11 @@ impl RpcChannel {
         loop {
             let n = match self.stream.read(&mut buf) {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(orfail::Failure::new(format!("Read error: {e}"))),
+                Err(e) => {
+                    return Err(orfail::Failure::new(format!(
+                        "Failed to read response: {e}"
+                    )));
+                }
                 Ok(0) => return Err(orfail::Failure::new("Server closed connection")),
                 Ok(n) => n,
             };
@@ -334,7 +345,7 @@ impl RpcChannel {
                 self.ongoing_requests = self
                     .ongoing_requests
                     .checked_sub(count)
-                    .or_fail_with(|()| "too many responses".to_owned())?;
+                    .or_fail_with(|()| "Too many responses".to_owned())?;
             }
 
             self.recv_buf.extend_from_slice(&buf[..n]);

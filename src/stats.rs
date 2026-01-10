@@ -139,7 +139,7 @@ impl nojson::DisplayJson for Stats {
         f.object(|f| {
             f.member("elapsed_seconds", duration.as_secs_f64())?;
             f.member("requests_per_second", rps)?;
-            f.member("avg_latency", latency_stats.avg)?;
+            f.member("avg_latency_seconds", latency_stats.avg)?;
             f.member(
                 "detail",
                 nojson::object(|f| {
@@ -176,8 +176,8 @@ impl Stats {
         f.member(
             "size",
             no_indent_object(|f| {
-                f.member("request_avg_bytes", avg_request_size)?;
-                f.member("response_avg_bytes", avg_response_size)
+                f.member("request_avg_bytes", avg_request_size.round() as usize)?;
+                f.member("response_avg_bytes", avg_response_size.round() as usize)
             }),
         )?;
         f.member(

@@ -4,13 +4,7 @@ use orfail::OrFail;
 
 pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     if !noargs::cmd("stats")
-        .doc(concat!(
-            "Calculate statistics from JSON objects outputted ",
-            "by executing the command `call --add-metadata ...`\n",
-            "\n",
-            "Note that the output of `call` command does not include notifications,\n",
-            "so the statistics do not take them into account."
-        ))
+        .doc("Calculate statistics from JSON objects outputted by the bench command")
         .take(args)
         .is_present()
     {

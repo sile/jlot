@@ -12,7 +12,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     }
 
     if args.metadata().help_mode {
-        return Ok(false);
+        return Ok(true);
     }
 
     run_stats()?;

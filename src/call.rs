@@ -21,7 +21,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .then(|a| a.value().parse())?;
 
     if args.metadata().help_mode {
-        return Ok(false);
+        return Ok(true);
     }
 
     let call_command = CallCommand { server_addr };

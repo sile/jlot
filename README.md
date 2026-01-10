@@ -14,21 +14,21 @@ This is a command-line tool for [JSON-RPC 2.0] over [JSON Lines] over TCP.
 ```console
 $ cargo install jlot
 
-$ jlot
+$ jlot -h
 Command-line tool for JSON-RPC 2.0 over JSON Lines over TCP
 
-Usage: jlot <COMMAND>
+Usage: jlot [OPTIONS] <COMMAND>
 
 Commands:
-  call             Read JRON-RPC requests from standard input and execute the RPC calls
-  req              Generate a JSON-RPC request object JSON
-  stats            Calculate statistics from JSON objects outputted by executing the command `call --add-metadata ...`
-  run-echo-server  Run a JSON-RPC echo server (for development or testing purposes)
-  help             Print this message or the help of the given subcommand(s)
+  req         Generate a JSON-RPC request object JSON
+  call        Read JSON-RPC requests from standard input and execute the RPC calls
+  bench       Run JSON-RPC benchmark
+  stats       Calculate statistics from JSON objects outputted by the bench command
+  echo-server Run a JSON-RPC echo server (for development or testing purposes)
 
 Options:
-  -h, --help     Print help
-  -V, --version  Print version
+      --version Print version
+  -h, --help    Print help ('--help' for full help, '-h' for summary)
 ```
 
 Examples
@@ -38,7 +38,7 @@ Examples
 
 Start an echo server in a terminal (":9000" is shorthand for "127.0.0.1:9000"):
 ```console
-$ jlot run-echo-server :9000
+$ jlot echo-server :9000
 ```
 
 Execute an RPC call in another terminal:
@@ -62,27 +62,23 @@ $ jlot req hello --params '["world"]' | jlot call :9000 | jq .
 
 Start an echo server in a terminal:
 ```console
-$ jlot run-echo-server :9000
+$ jlot echo-server :9000
 ```
 
-Execute 1000 RPC calls with pipelining enabled and gather the statistics:
+Execute 100,000 RPC calls in benchmarking mode and gather the statistics:
 ```console
 $ jlot req put --count 100000 | \
-    jlot call :9000 --concurrency 10 --add-metadata | \
-    jlot stats | \
-    jq .
+    jlot bench :9000 --concurrency 10 | \
+    jlot stats
 {
-  "rpc_calls": 100000,
-  "duration": 0.608289541,
-  "max_concurrency": 10,
-  "rps": 164395.39604051816,
-  "latency": {
-    "min": 0.000016416,
-    "p25": 0.0000435,
-    "p50": 0.000057625,
-    "p75": 0.000074584,
-    "max": 0.000302208,
-    "avg": 0.000060041
+  "elapsed_seconds": 0.356318,
+  "requests_per_second": 280648,
+  "avg_latency_seconds": 0.000034634,
+  "detail": {
+    "count": { "success": 100000, "error": 0 },
+    "size": { "request_avg_bytes": 43, "response_avg_bytes": 81 },
+    "latency": { "min": 0.000013, "p25": 0.000024, "p50": 0.000028, "p75": 0.000035, "max": 0.038994 },
+    "concurrency": { "max": 10 }
   }
 }
 ```

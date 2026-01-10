@@ -133,18 +133,7 @@ impl BenchCommand {
         let mut events = mio::Events::with_capacity(self.channels.len());
         while !self.requests.is_empty() || self.ongoing_requests > 0 {
             if self.ongoing_requests < self.concurrency.get() {
-                let now = std::time::Instant::now();
-                while self.ongoing_requests < self.concurrency.get()
-                    && let Some(request) = self.requests.pop()
-                {
-                    let (_, i) = self.channel_requests.pop_first().or_fail()?;
-                    self.channels[i]
-                        .add_request(&mut self.poll, now, request)
-                        .or_fail()?;
-                    self.channel_requests
-                        .insert((self.channels[i].ongoing_requests, i));
-                    self.ongoing_requests += 1;
-                }
+                self.enqueue_pending_requests().or_fail()?;
             }
 
             self.poll.poll(&mut events, None).or_fail()?;
@@ -167,6 +156,22 @@ impl BenchCommand {
             }
         }
 
+        Ok(())
+    }
+
+    fn enqueue_pending_requests(&mut self) -> orfail::Result<()> {
+        let now = std::time::Instant::now();
+        while self.ongoing_requests < self.concurrency.get()
+            && let Some(request) = self.requests.pop()
+        {
+            let (_, i) = self.channel_requests.pop_first().or_fail()?;
+            self.channels[i]
+                .enqueue_request(&mut self.poll, now, request)
+                .or_fail()?;
+            self.channel_requests
+                .insert((self.channels[i].ongoing_requests, i));
+            self.ongoing_requests += 1;
+        }
         Ok(())
     }
 
@@ -254,7 +259,7 @@ impl RpcChannel {
         }
     }
 
-    fn add_request(
+    fn enqueue_request(
         &mut self,
         poll: &mut mio::Poll,
         now: std::time::Instant,

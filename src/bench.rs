@@ -67,62 +67,7 @@ impl BenchCommand {
         self.setup_rpc_channels().or_fail()?;
         self.read_requests().or_fail()?;
         self.run_rpc_calls().or_fail()?;
-
-        let stdout = std::io::stdout();
-        let mut output_writer = std::io::BufWriter::new(stdout.lock());
-
-        for channel in self.channels {
-            let mut requests = channel
-                .requests
-                .into_iter()
-                .zip(channel.start_times)
-                .map(|(mut r, t)| (r.id.take(), (r, t)))
-                .collect::<std::collections::HashMap<_, _>>();
-            for (line, end_time) in std::io::BufReader::new(&channel.recv_buf[..])
-                .lines()
-                .zip(channel.end_times)
-            {
-                let line = line.or_fail()?;
-                let mut response = Response::parse(line).or_fail()?;
-                let id = response.id.take().or_fail_with(|()| "TODO".to_owned())?;
-                let (request, start_time) = requests
-                    .remove(&Some(id))
-                    .or_fail_with(|()| "TODO".to_owned())?;
-                let start_unix_timestamp =
-                    start_time.duration_since(self.base_time) + self.base_unix_timestamp;
-                let end_unix_timestamp =
-                    end_time.duration_since(self.base_time) + self.base_unix_timestamp;
-                writeln!(
-                    output_writer,
-                    "{}",
-                    nojson::object(|f| {
-                        for (name, value) in request.json.value().to_object().expect("bug") {
-                            let name = name.to_unquoted_string_str().expect("infallibe");
-                            f.member(name, value)?;
-                        }
-                        for (name, value) in response.json.value().to_object().expect("bug") {
-                            let name = name.to_unquoted_string_str().expect("infallibe");
-                            if !matches!(name.as_ref(), "jsonrpc" | "id") {
-                                f.member(name, value)?;
-                            }
-                        }
-                        f.member("server", &channel.server_addr.0)?;
-                        f.member("request_byte_size", request.json.text().len())?;
-                        f.member("response_byte_size", response.json.text().len())?;
-                        f.member(
-                            "start_unix_timestamp_micros",
-                            start_unix_timestamp.as_micros(),
-                        )?;
-                        f.member("end_unix_timestamp_micros", end_unix_timestamp.as_micros())?;
-                        Ok(())
-                    })
-                )
-                .or_fail()?;
-            }
-        }
-
-        output_writer.flush().or_fail()?;
-
+        self.output_results().or_fail()?;
         Ok(())
     }
 
@@ -226,6 +171,66 @@ impl BenchCommand {
                 .insert((self.channels[i].ongoing_requests, i));
             self.ongoing_requests += 1;
         }
+        Ok(())
+    }
+
+    fn output_results(&self) -> orfail::Result<()> {
+        let stdout = std::io::stdout();
+        let mut output_writer = std::io::BufWriter::new(stdout.lock());
+
+        for channel in &self.channels {
+            let mut requests = channel
+                .requests
+                .iter()
+                .zip(channel.start_times.iter())
+                .map(|(r, t)| (r.id.clone(), (r, *t)))
+                .collect::<std::collections::HashMap<_, _>>();
+
+            for (line, end_time) in std::io::BufReader::new(&channel.recv_buf[..])
+                .lines()
+                .zip(channel.end_times.iter())
+            {
+                let line = line.or_fail()?;
+                let mut response = Response::parse(line).or_fail()?;
+                let id = response.id.take().or_fail_with(|()| "TODO".to_owned())?;
+                let (request, start_time) = requests
+                    .remove(&Some(id))
+                    .or_fail_with(|()| "TODO".to_owned())?;
+                let start_unix_timestamp =
+                    start_time.duration_since(self.base_time) + self.base_unix_timestamp;
+                let end_unix_timestamp =
+                    end_time.duration_since(self.base_time) + self.base_unix_timestamp;
+
+                writeln!(
+                    output_writer,
+                    "{}",
+                    nojson::object(|f| {
+                        for (name, value) in request.json.value().to_object().expect("bug") {
+                            let name = name.to_unquoted_string_str().expect("infallibe");
+                            f.member(name, value)?;
+                        }
+                        for (name, value) in response.json.value().to_object().expect("bug") {
+                            let name = name.to_unquoted_string_str().expect("infallibe");
+                            if !matches!(name.as_ref(), "jsonrpc" | "id") {
+                                f.member(name, value)?;
+                            }
+                        }
+                        f.member("server", &channel.server_addr.0)?;
+                        f.member("request_byte_size", request.json.text().len())?;
+                        f.member("response_byte_size", response.json.text().len())?;
+                        f.member(
+                            "start_unix_timestamp_micros",
+                            start_unix_timestamp.as_micros(),
+                        )?;
+                        f.member("end_unix_timestamp_micros", end_unix_timestamp.as_micros())?;
+                        Ok(())
+                    })
+                )
+                .or_fail()?;
+            }
+        }
+
+        output_writer.flush().or_fail()?;
         Ok(())
     }
 }

@@ -60,6 +60,8 @@ $ jlot req hello --params '["world"]' | jlot call :9000 | jq .
 
 ### Benchmarking
 
+Note: The bench command uses io-uring and is supported only on Linux.
+
 Start an echo server in a terminal:
 ```console
 $ jlot echo-server :9000

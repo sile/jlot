@@ -45,7 +45,7 @@ impl Request {
         let mut has_method = false;
         let mut id = None;
         for (name, value) in value.to_object()? {
-            match name.as_string_str()?.as_ref() {
+            match name.as_string_str()? {
                 "jsonrpc" => {
                     if value.as_string_str()? != "2.0" {
                         return Err(value.invalid("jsonrpc version must be '2.0'"));
@@ -120,7 +120,7 @@ impl Response {
         let mut has_result_or_error = false;
 
         for (name, value) in value.to_object()? {
-            match name.as_string_str()?.as_ref() {
+            match name.as_string_str()? {
                 "jsonrpc" => {
                     if value.as_string_str()? != "2.0" {
                         return Err(value.invalid("jsonrpc version must be '2.0'"));

@@ -24,6 +24,11 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .doc("Use UDP instead of TCP (one packet per request/response)")
         .take(args)
         .is_present();
+    let pretty: bool = noargs::flag("pretty")
+        .short('p')
+        .doc("Pretty-print JSON responses")
+        .take(args)
+        .is_present();
 
     if args.metadata().help_mode {
         return Ok(true);
@@ -32,6 +37,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
     let call_command = CallCommand {
         server_addr,
         use_udp,
+        pretty,
     };
     call_command.run().or_fail()?;
 
@@ -41,6 +47,7 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
 struct CallCommand {
     server_addr: ServerAddr,
     use_udp: bool,
+    pretty: bool,
 }
 
 impl CallCommand {
@@ -78,7 +85,8 @@ impl CallCommand {
                 })?;
 
                 let response = Response::parse(response_line).or_fail()?;
-                writeln!(output_writer, "{}", response.json).or_fail()?;
+                self.write_response(&mut output_writer, &response)
+                    .or_fail()?;
             }
         }
 
@@ -110,7 +118,8 @@ impl CallCommand {
                 })?;
                 let response_line = String::from_utf8(buf[..bytes_read].to_vec()).or_fail()?;
                 let response = Response::parse(response_line).or_fail()?;
-                writeln!(output_writer, "{}", response.json).or_fail()?;
+                self.write_response(&mut output_writer, &response)
+                    .or_fail()?;
             }
         }
 
@@ -132,5 +141,23 @@ impl CallCommand {
             .connect(&self.server_addr.0)
             .or_fail_with(|e| format!("Failed to connect to '{}': {e}", self.server_addr.0))?;
         Ok(socket)
+    }
+
+    fn write_response(
+        &self,
+        output_writer: &mut impl Write,
+        response: &Response,
+    ) -> orfail::Result<()> {
+        if self.pretty {
+            let pretty_json = nojson::json(|f| {
+                f.set_indent_size(2);
+                f.set_spacing(true);
+                f.value(response.json.value())
+            });
+            writeln!(output_writer, "{}", pretty_json).or_fail()?;
+        } else {
+            writeln!(output_writer, "{}", response.json).or_fail()?;
+        }
+        Ok(())
     }
 }

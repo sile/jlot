@@ -213,12 +213,12 @@ impl BenchCommand {
                     "{}",
                     nojson::object(|f| {
                         for (name, value) in request.json.value().to_object().expect("bug") {
-                            let name = name.to_unquoted_string_str().expect("infallible");
+                            let name = name.as_string_str().expect("infallible");
                             f.member(name, value)?;
                         }
                         for (name, value) in response.json.value().to_object().expect("bug") {
-                            let name = name.to_unquoted_string_str().expect("infallible");
-                            if !matches!(name.as_ref(), "jsonrpc" | "id") {
+                            let name = name.as_string_str().expect("infallible");
+                            if !matches!(name, "jsonrpc" | "id") {
                                 f.member(name, value)?;
                             }
                         }

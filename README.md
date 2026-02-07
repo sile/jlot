@@ -82,3 +82,13 @@ $ jlot req put --count 100000 | \
   }
 }
 ```
+
+UDP
+---
+
+UDP is supported for simple testing with one-packet request/response.
+
+```console
+$ jlot echo-server --udp :9001
+$ jlot req hello --params '["world"]' | jlot call --udp :9001
+```

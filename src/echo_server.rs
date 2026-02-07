@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, UdpSocket};
 
 use orfail::OrFail;
 
@@ -19,6 +19,12 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(false);
     }
 
+    let use_udp: bool = noargs::flag("udp")
+        .short('u')
+        .doc("Use UDP instead of TCP (one packet per request/response)")
+        .take(args)
+        .is_present();
+
     let listen_addr: ServerAddr = noargs::arg("<ADDR>")
         .doc("Listen address")
         .example("127.0.0.1:8080")
@@ -29,11 +35,15 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         return Ok(true);
     }
 
-    run_server(listen_addr)?;
+    if use_udp {
+        run_server_udp(listen_addr)?;
+    } else {
+        run_server_tcp(listen_addr)?;
+    }
     Ok(true)
 }
 
-fn run_server(listen_addr: ServerAddr) -> orfail::Result<()> {
+fn run_server_tcp(listen_addr: ServerAddr) -> orfail::Result<()> {
     let listener = std::net::TcpListener::bind(listen_addr.0).or_fail()?;
     for incoming in listener.incoming() {
         let stream = incoming.or_fail()?;
@@ -42,6 +52,45 @@ fn run_server(listen_addr: ServerAddr) -> orfail::Result<()> {
         });
     }
     Ok(())
+}
+
+fn run_server_udp(listen_addr: ServerAddr) -> orfail::Result<()> {
+    const MAX_UDP_PACKET: usize = 65535;
+
+    let socket = UdpSocket::bind(listen_addr.0).or_fail()?;
+    let mut buf = vec![0u8; MAX_UDP_PACKET];
+    loop {
+        let (bytes_read, peer_addr) = socket.recv_from(&mut buf).or_fail()?;
+        if bytes_read == 0 {
+            continue;
+        }
+
+        let response = match String::from_utf8(buf[..bytes_read].to_vec()) {
+            Ok(text) => match nojson::RawJson::parse(&text) {
+                Ok(json) => {
+                    let json_value = json.value();
+                    match parse_request(json_value) {
+                        Ok(Some(request_id)) => {
+                            let response = nojson::object(|f| {
+                                f.member("jsonrpc", "2.0")?;
+                                f.member("id", request_id)?;
+                                f.member("result", json_value)
+                            });
+                            Some(response.to_string())
+                        }
+                        Ok(None) => None,
+                        Err(e) => Some(build_error_response(e.to_string())),
+                    }
+                }
+                Err(e) => Some(build_error_response(e.to_string())),
+            },
+            Err(e) => Some(build_error_response(e.to_string())),
+        };
+
+        if let Some(response) = response {
+            let _ = socket.send_to(response.as_bytes(), peer_addr);
+        }
+    }
 }
 
 fn handle_client(stream: TcpStream) -> orfail::Result<()> {
@@ -63,21 +112,7 @@ fn handle_client(stream: TcpStream) -> orfail::Result<()> {
                 Ok(writeln!(writer, "{response}"))
             })
             .unwrap_or_else(|e| {
-                let response = nojson::object(|f| {
-                    f.member("jsonrpc", "2.0")?;
-                    f.member(
-                        "error",
-                        nojson::object(|f| {
-                            // NOTE: For simplicity, we return a fixed error code (-32600) without an id field.
-                            // In a production implementation, this should handle errors more granularly:
-                            // - Parse errors should return -32700 without an id
-                            // - Invalid requests should return -32600 with the id if present
-                            f.member("code", -32600)?; // invalid-request code
-                            f.member("message", e.to_string())
-                        }),
-                    )?;
-                    f.member("id", ()) // null ID
-                });
+                let response = build_error_response(e.to_string());
                 writeln!(writer, "{response}")
             })
             .or_fail()?;
@@ -141,4 +176,23 @@ fn parse_request<'text, 'raw>(
     }
 
     Ok(id)
+}
+
+fn build_error_response(message: String) -> String {
+    let response = nojson::object(|f| {
+        f.member("jsonrpc", "2.0")?;
+        f.member(
+            "error",
+            nojson::object(|f| {
+                // NOTE: For simplicity, we return a fixed error code (-32600) without an id field.
+                // In a production implementation, this should handle errors more granularly:
+                // - Parse errors should return -32700 without an id
+                // - Invalid requests should return -32600 with the id if present
+                f.member("code", -32600)?; // invalid-request code
+                f.member("message", message.as_str())
+            }),
+        )?;
+        f.member("id", ()) // null ID
+    });
+    response.to_string()
 }

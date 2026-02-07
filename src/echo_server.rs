@@ -24,7 +24,6 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .doc("Use UDP instead of TCP (one packet per request/response)")
         .take(args)
         .is_present();
-
     let listen_addr: ServerAddr = noargs::arg("<ADDR>")
         .doc("Listen address")
         .example("127.0.0.1:8080")

@@ -19,16 +19,15 @@ pub fn try_run(args: &mut noargs::RawArgs) -> noargs::Result<bool> {
         .example("127.0.0.1:8080")
         .take(args)
         .then(|a| a.value().parse())?;
-
-    if args.metadata().help_mode {
-        return Ok(true);
-    }
-
     let use_udp: bool = noargs::flag("udp")
         .short('u')
         .doc("Use UDP instead of TCP (one packet per request/response)")
         .take(args)
         .is_present();
+
+    if args.metadata().help_mode {
+        return Ok(true);
+    }
 
     let call_command = CallCommand {
         server_addr,

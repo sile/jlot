@@ -153,14 +153,13 @@ fn parse_request<'text, 'raw>(
                 }
                 has_method = true;
             }
-            "params" => {
+            "params"
                 if !matches!(
                     value.kind(),
                     nojson::JsonValueKind::Object | nojson::JsonValueKind::Array
-                ) {
+                ) => {
                     return Err(value.invalid("params must be an object or array"));
                 }
-            }
             _ => {
                 // Ignore unknown members
             }
